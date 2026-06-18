@@ -20,7 +20,10 @@ export function useEmployeeData() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
 

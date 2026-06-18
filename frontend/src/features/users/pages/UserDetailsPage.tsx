@@ -69,7 +69,7 @@ export function UserDetailsPage() {
   }
 
   const tenantId = profile?.activeTenantId || "";
-  const memberTenant = user.tenants[tenantId];
+  const memberTenant = user.tenants?.[tenantId];
 
   return (
     <div className="space-y-6">

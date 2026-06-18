@@ -41,7 +41,10 @@ export function PipelinePage() {
   const [addOpen, setAddOpen] = useState(false);
 
   const fetchAll = useCallback(async () => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

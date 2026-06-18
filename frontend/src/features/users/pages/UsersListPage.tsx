@@ -32,6 +32,7 @@ export function UsersListPage() {
 
   // Invite modal states
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("employee");
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -43,7 +44,10 @@ export function UsersListPage() {
   const [customRoles, setCustomRoles] = useState<any[]>([]);
 
   const fetchMembers = async () => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -84,7 +88,7 @@ export function UsersListPage() {
 
   // Handle Enable/Disable Status
   const toggleUserStatus = async (user: UserProfile) => {
-    const currentStatus = user.tenants[tenantId]?.status;
+    const currentStatus = user.tenants?.[tenantId]?.status;
     const newStatus = currentStatus === "active" ? "disabled" : "active";
 
     try {
@@ -103,7 +107,7 @@ export function UsersListPage() {
 
   // Handle Role Change
   const handleRoleChange = async (userId: string, member: UserProfile, newRole: string) => {
-    const oldRole = member.tenants[tenantId]?.role;
+    const oldRole = member.tenants?.[tenantId]?.role;
     try {
       await assignRoleToUser(
         tenantId,
@@ -134,9 +138,10 @@ export function UsersListPage() {
 
     try {
       const inviteUserFn = httpsCallable(functions, "inviteUser");
-      await inviteUserFn({ email: inviteEmail, tenantId, role: inviteRole });
+      await inviteUserFn({ email: inviteEmail, tenantId, role: inviteRole, displayName: inviteName });
       setInviteSuccess(true);
       setInviteEmail("");
+      setInviteName("");
       fetchMembers();
     } catch (err: any) {
       console.error(err);
@@ -148,7 +153,7 @@ export function UsersListPage() {
 
   // Filter and Sort Logic
   const filteredMembers = members.filter((member) => {
-    const memberTenant = member.tenants[tenantId];
+    const memberTenant = member.tenants?.[tenantId];
     if (!memberTenant) return false;
 
     // Search query match
@@ -166,8 +171,8 @@ export function UsersListPage() {
   });
 
   const sortedMembers = [...filteredMembers].sort((a, b) => {
-    const aTenant = a.tenants[tenantId];
-    const bTenant = b.tenants[tenantId];
+    const aTenant = a.tenants?.[tenantId];
+    const bTenant = b.tenants?.[tenantId];
     if (!aTenant || !bTenant) return 0;
 
     if (sortBy === "name-asc") {
@@ -217,6 +222,8 @@ export function UsersListPage() {
           <button
             onClick={() => {
               setInviteModalOpen(true);
+              setInviteName("");
+              setInviteEmail("");
               setInviteSuccess(false);
               setInviteError(null);
             }}
@@ -316,7 +323,7 @@ export function UsersListPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {paginatedMembers.map((member) => {
-                  const memberTenant = member.tenants[tenantId];
+                  const memberTenant = member.tenants?.[tenantId];
                   if (!memberTenant) return null;
 
                   return (
@@ -464,6 +471,21 @@ export function UsersListPage() {
               </div>
             ) : (
               <form onSubmit={handleInviteSubmit} className="mt-4 space-y-4">
+                <div>
+                  <label htmlFor="invite-name" className="text-sm font-semibold text-slate-700">
+                    Full Name
+                  </label>
+                  <input
+                    id="invite-name"
+                    type="text"
+                    required
+                    placeholder="John Doe"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                  />
+                </div>
+
                 <div>
                   <label htmlFor="invite-email" className="text-sm font-semibold text-slate-700">
                     Email Address

@@ -19,8 +19,13 @@ service cloud.firestore {
     }
 
     function isMemberOfTenant(tenantId) {
+      let data = getUserData();
+      let tenantsMap = (data != null && 'tenants' in data) ? data.tenants : null;
+      let tenantInfo = (tenantsMap != null && tenantId in tenantsMap) ? tenantsMap[tenantId] : null;
       return isAuthenticated() &&
-        getUserData().get('tenants', {}).get(tenantId, {}).get('status', '') == 'active';
+        tenantInfo != null &&
+        'status' in tenantInfo &&
+        tenantInfo.status == 'active';
     }
 
     function isOwnerOfRecord(employeeId) {
@@ -43,7 +48,10 @@ service cloud.firestore {
 
     function hasPermission(tenantId, permission) {
       // Throw-proof role lookup: missing tenant membership yields '' (no match).
-      let role = getUserData().get('tenants', {}).get(tenantId, {}).get('role', '');
+      let data = getUserData();
+      let tenantsMap = (data != null && 'tenants' in data) ? data.tenants : null;
+      let tenantInfo = (tenantsMap != null && tenantId in tenantsMap) ? tenantsMap[tenantId] : null;
+      let role = (tenantInfo != null && 'role' in tenantInfo) ? tenantInfo.role : '';
       return isMemberOfTenant(tenantId) && (
         role == 'super_admin' || 
         role == 'org_admin' ||
@@ -112,7 +120,7 @@ service cloud.firestore {
 
     // Rules for root /roles collection
     match /roles/{roleId} {
-      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow read: if isAuthenticated() && (resource == null || isMemberOfTenant(resource.data.tenantId));
       allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.create');
       allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.update');
       allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.delete') && !resource.data.isSystemRole;
@@ -126,7 +134,7 @@ service cloud.firestore {
     // holders of roles.update (org_admin / super_admin) may create, modify, or
     // remove an override.
     match /roleOverrides/{overrideId} {
-      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow read: if isAuthenticated() && (resource == null || isMemberOfTenant(resource.data.tenantId));
       allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.update');
       allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.update');
       allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.update');
@@ -134,7 +142,7 @@ service cloud.firestore {
 
     // Rules for root /userRoles collection
     match /userRoles/{userRoleId} {
-      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow read: if isAuthenticated() && (resource == null || isMemberOfTenant(resource.data.tenantId));
       allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.update');
       allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.delete');
     }
@@ -142,6 +150,7 @@ service cloud.firestore {
     // Rules for /invitations collection
     match /invitations/{inviteId} {
       allow read: if isAuthenticated() && (
+        resource == null ||
         request.auth.token.email == resource.data.email ||
         isMemberOfTenant(resource.data.tenantId)
       );
@@ -158,7 +167,7 @@ service cloud.firestore {
 
     // Rules for /departments collection
     match /departments/{id} {
-      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.view');
+      allow read: if isAuthenticated() && (resource == null || (isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.view')));
       allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'departments.create');
       allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.update');
       allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.delete');

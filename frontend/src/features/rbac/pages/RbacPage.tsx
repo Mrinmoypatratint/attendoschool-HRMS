@@ -112,7 +112,10 @@ export function RbacPage() {
 
   // Fetch Roles
   const fetchRoles = async () => {
-    if (!tenantId) return;
+    if (!tenantId) {
+      setLoadingRoles(false);
+      return;
+    }
     setLoadingRoles(true);
     setRolesError(null);
     try {
@@ -504,7 +507,7 @@ export function RbacPage() {
 
   // Assign user a new role
   const handleUserRoleChange = async (userId: string, member: UserProfile, newRole: string) => {
-    const oldRole = member.tenants[tenantId]?.role;
+    const oldRole = member.tenants?.[tenantId]?.role;
     try {
       await assignRoleToUser(
         tenantId,
@@ -975,7 +978,7 @@ export function RbacPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {filteredMembers.map((member) => {
-                    const tenantInfo = member.tenants[tenantId];
+                    const tenantInfo = member.tenants?.[tenantId];
                     if (!tenantInfo) return null;
 
                     const userRole = tenantInfo.role;

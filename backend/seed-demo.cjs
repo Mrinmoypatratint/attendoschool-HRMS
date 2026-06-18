@@ -101,6 +101,32 @@ async function seed() {
   }
   console.log("✓ departments");
 
+  // 3b. Employee directory records (so all demo users appear in the Employee Directory)
+  const employees = [
+    { id: "emp_super_admin", userId: "demo_super_admin", firstName: "Sasha",   lastName: "Super",    email: "superadmin@demo.io",  phone: "+1 555 0101", jobTitle: "CTO",                  departmentId: "dept_eng",     managerId: null,              status: "active", startDate: "2024-01-15", workLocation: "Remote" },
+    { id: "emp_org_admin",   userId: "demo_org_admin",   firstName: "Olivia",  lastName: "Owner",    email: "orgadmin@demo.io",    phone: "+1 555 0102", jobTitle: "CEO",                  departmentId: "dept_product", managerId: null,              status: "active", startDate: "2024-01-01", workLocation: "Bengaluru HQ" },
+    { id: "emp_hr_manager",  userId: "demo_hr_manager",  firstName: "Hina",    lastName: "HR",       email: "hr@demo.io",          phone: "+1 555 0103", jobTitle: "HR Manager",           departmentId: "dept_product", managerId: "emp_org_admin",   status: "active", startDate: "2024-03-01", workLocation: "Bengaluru HQ" },
+    { id: "emp_recruiter",   userId: "demo_recruiter",   firstName: "Ravi",    lastName: "Recruiter", email: "recruiter@demo.io",  phone: "+1 555 0104", jobTitle: "Senior Recruiter",     departmentId: "dept_product", managerId: "emp_hr_manager",  status: "active", startDate: "2024-06-01", workLocation: "Remote" },
+    { id: "emp_employee",    userId: "demo_employee",    firstName: "Eli",     lastName: "Employee", email: "employee@demo.io",    phone: "+1 555 0105", jobTitle: "Software Engineer",    departmentId: "dept_eng",     managerId: "emp_super_admin", status: "active", startDate: "2025-01-10", workLocation: "Remote" },
+  ];
+  for (const e of employees) {
+    await db.collection("employees").doc(e.id).set({ ...e, tenantId: TENANT_ID, createdAt: now, updatedAt: now });
+  }
+  console.log("✓ employees");
+
+  // 3c. Compensation records (sensitive, stored separately per SEC-002)
+  const compensations = [
+    { id: "emp_super_admin", employeeId: "emp_super_admin", salary: 200000, currency: "USD" },
+    { id: "emp_org_admin",   employeeId: "emp_org_admin",   salary: 250000, currency: "USD" },
+    { id: "emp_hr_manager",  employeeId: "emp_hr_manager",  salary: 120000, currency: "USD" },
+    { id: "emp_recruiter",   employeeId: "emp_recruiter",   salary: 95000,  currency: "USD" },
+    { id: "emp_employee",    employeeId: "emp_employee",    salary: 110000, currency: "USD" },
+  ];
+  for (const c of compensations) {
+    await db.collection("employeeCompensation").doc(c.id).set({ ...c, tenantId: TENANT_ID, updatedAt: now });
+  }
+  console.log("✓ compensation");
+
   // 4. Jobs (requisitions)
   const defaultStages = ["Applied", "Screening", "Interview", "Offer", "Hired", "Rejected"];
   const noApproval = { required: false, steps: [], currentStep: 0, status: "approved" };

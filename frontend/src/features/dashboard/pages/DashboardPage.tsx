@@ -17,7 +17,11 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!profile?.activeTenantId) return;
+    if (!profile?.activeTenantId) {
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
     // Skip the members query entirely when the role can't view users.
     if (!canViewUsers) {
       setMembers([]);
@@ -162,7 +166,9 @@ export function DashboardPage() {
                     </div>
                   </div>
                   <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600 capitalize">
-                    {member.tenants[profile?.activeTenantId || ""]?.role.replace("_", " ")}
+                    {profile?.activeTenantId
+                      ? member.tenants?.[profile.activeTenantId]?.role?.replace("_", " ") || "member"
+                      : "member"}
                   </span>
                 </div>
               ))}

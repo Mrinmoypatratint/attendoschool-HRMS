@@ -104,7 +104,9 @@ export function Sidebar() {
                 className="text-[10px] font-semibold tracking-wider uppercase"
                 style={{ color: primaryColor }}
               >
-                {profile?.tenants?.[profile.activeTenantId || ""]?.role.replace("_", " ") || "Member"}
+                {profile?.activeTenantId
+                  ? profile.tenants?.[profile.activeTenantId]?.role?.replace("_", " ") || "Member"
+                  : "Member"}
               </p>
             </div>
           </div>

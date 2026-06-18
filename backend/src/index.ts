@@ -317,10 +317,6 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
 
   const userRef = db.collection("users").doc(uid);
 
-  // Retrieve existing pre-populated profile configurations
-  const existingSnap = await userRef.get();
-  const existing = existingSnap.exists ? (existingSnap.data() as Record<string, any>) : null;
-
   // Lookup pending invitations
   const invitesSnap = await db
     .collection("invitations")
@@ -344,22 +340,28 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
   });
 
   const now = FieldValue.serverTimestamp();
-  const mergedTenants = { ...(existing?.tenants ?? {}), ...inviteTenants };
-  const activeTenantId = existing?.activeTenantId ?? firstInviteTenant ?? null;
 
-  const profile: Record<string, any> = {
-    id: uid,
-    email,
-    displayName: existing?.displayName || displayName || email.split("@")[0] || "User",
-    photoURL: existing?.photoURL ?? photoURL ?? null,
-    updatedAt: now,
-    activeTenantId,
-    tenants: mergedTenants,
-  };
-  if (!existing) profile.createdAt = now;
+  // Run a transaction to safely read and write the user profile, preventing race conditions
+  await db.runTransaction(async (tx) => {
+    const existingSnap = await tx.get(userRef);
+    const existing = existingSnap.exists ? (existingSnap.data() as Record<string, any>) : null;
 
-  // Use merge:true to update or populate profile details safely
-  await userRef.set(profile, { merge: true });
+    const mergedTenants = { ...(existing?.tenants ?? {}), ...inviteTenants };
+    const activeTenantId = existing?.activeTenantId ?? firstInviteTenant ?? null;
+
+    const profile: Record<string, any> = {
+      id: uid,
+      email,
+      displayName: existing?.displayName || displayName || email.split("@")[0] || "User",
+      photoURL: existing?.photoURL ?? photoURL ?? null,
+      updatedAt: now,
+      activeTenantId,
+      tenants: mergedTenants,
+    };
+    if (!existing) profile.createdAt = now;
+
+    tx.set(userRef, profile, { merge: true });
+  });
 
   // Optimization: Skip database batch write if no invitations were found
   if (!invitesSnap.empty) {
@@ -388,7 +390,7 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
     throw new functions.https.HttpsError("unauthenticated", "User must be authenticated.");
   }
 
-  const { email, tenantId, role } = data;
+  const { email, tenantId, role, displayName } = data;
   if (!email || !tenantId || !role) {
     throw new functions.https.HttpsError("invalid-argument", "Missing required fields: email, tenantId, role.");
   }
@@ -430,6 +432,7 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
       email,
       emailVerified: false,
       password: randomPassword,
+      ...(displayName ? { displayName } : {}),
     });
 
     // 2. Generate password-reset URL as a "set password" activation step
@@ -464,7 +467,7 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
   const profile: Record<string, any> = {
     id: uid,
     email,
-    displayName: existing?.displayName || email.split("@")[0] || "User",
+    displayName: existing?.displayName || displayName || email.split("@")[0] || "User",
     photoURL: existing?.photoURL ?? null,
     updatedAt: now,
     tenants: {
