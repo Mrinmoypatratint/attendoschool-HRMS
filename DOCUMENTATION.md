@@ -1,4 +1,4 @@
-# Enterprise HRMS & ATS SaaS Platform: Complete Technical Specification
+# Enterprise HRMS SaaS Platform: Complete Technical Specification
 
 This document provides a comprehensive technical blueprint, workflow specification, and operational guide for the Human Resource Management System (HRMS) & Applicant Tracking System (ATS) SaaS Platform. It is structured to serve as a single source of truth for clients, investors, developers, QA teams, and administrators.
 
@@ -51,14 +51,14 @@ Modern enterprises struggle with fragmented employee lifecycle management. Human
 Legacy HR tools lack modern UX standards and fail to support customization at the tenant level. For example, role permission definitions are hardcoded, preventing an organization from adjusting recruiter or employee permissions without vendor customization. Furthermore, hierarchical systems (like departments) often suffer from structural errors like circular dependency loops (e.g., Department A reporting to Department B, which reports to Department A), crashing reporting lines.
 
 ### 1.3 Proposed Solution
-The **Enterprise HRMS & ATS SaaS Platform** is a unified, multi-tenant monorepo workspace. It integrates administrative HR capabilities with a complete Applicant Tracking System. By combining structural data isolation, customized role-based access controls, automated leave settlement algorithms, and recursive safety checks (such as DFS-based circular dependency prevention), it offers a reliable, low-latency, secure platform inspired by modern standards like HiBob and Rippling.
+The **Enterprise HRMS SaaS Platform** is a unified, multi-tenant monorepo workspace. It integrates administrative HR capabilities with a complete Applicant Tracking System. By combining structural data isolation, customized role-based access controls, automated leave settlement algorithms, and recursive safety checks (such as DFS-based circular dependency prevention), it offers a reliable, low-latency, secure platform inspired by modern standards like HiBob and Rippling.
 
 ---
 
 ## 2. Product Vision, Goals, and Objectives
 
 ### 2.1 Project Vision
-To deliver a high-performance, secure, and visually outstanding HRMS & ATS SaaS platform that guarantees multi-tenant isolation, offers custom role matrices, and reduces operational overhead for HR, recruiters, and managers.
+To deliver a high-performance, secure, and visually outstanding HRMS SaaS platform that guarantees multi-tenant isolation, offers custom role matrices, and reduces operational overhead for HR, recruiters, and managers.
 
 ### 2.2 Goals & Objectives
 * **Zero Cross-Tenant Leaks:** Absolute isolation at the database (Firestore) and file levels.
@@ -992,10 +992,10 @@ VITE_FIREBASE_APP_ID=1:123456789:web:abcdef123456
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-smtp-username@gmail.com
-MAIL_FROM_NAME=HRMS & ATS SaaS
+MAIL_FROM_NAME=HRMS SaaS
 MAIL_FROM_ADDRESS=no-reply@yourdomain.com
 SUPPORT_EMAIL=support@yourdomain.com
-APP_NAME=HRMS & ATS
+APP_NAME=HRMS
 APP_URL=http://localhost:5173
 APP_LOGO_URL=
 ```
@@ -1180,7 +1180,7 @@ Update your environment settings in `backend/.env`. In production, save SMTP cre
 
 ## 19. Conclusion
 
-The **Enterprise HRMS & ATS platform** is built on a modern, secure architecture that combines React, TypeScript, and Firebase. Its robust multi-tenant isolation, dynamic permission controls, and secure transactional business logic make it an ideal foundation for managing employee lifecycles and talent acquisition in the enterprise.
+The **Enterprise HRMS platform** is built on a modern, secure architecture that combines React, TypeScript, and Firebase. Its robust multi-tenant isolation, dynamic permission controls, and secure transactional business logic make it an ideal foundation for managing employee lifecycles and talent acquisition in the enterprise.
 
 ---
 *End of Technical Specification.*

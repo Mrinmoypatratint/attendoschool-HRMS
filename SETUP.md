@@ -1,6 +1,6 @@
 # Local Development & Setup Guide
 
-Follow these steps to set up the HRMS & ATS SaaS platform locally.
+Follow these steps to set up the HRMS SaaS platform locally.
 
 ---
 

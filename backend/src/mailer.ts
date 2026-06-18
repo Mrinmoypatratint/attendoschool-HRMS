@@ -15,10 +15,10 @@ export const SMTP_PORT = defineString("SMTP_PORT", { default: "587" });
 export const SMTP_USER = defineString("SMTP_USER", { default: "" });
 export const SMTP_PASSWORD = defineSecret("SMTP_PASSWORD");
 
-export const MAIL_FROM_NAME = defineString("MAIL_FROM_NAME", { default: "HRMS & ATS" });
+export const MAIL_FROM_NAME = defineString("MAIL_FROM_NAME", { default: "HRMS" });
 export const MAIL_FROM_ADDRESS = defineString("MAIL_FROM_ADDRESS", { default: "no-reply@hrms-ats.app" });
 
-export const APP_NAME = defineString("APP_NAME", { default: "HRMS & ATS" });
+export const APP_NAME = defineString("APP_NAME", { default: "HRMS" });
 export const APP_URL = defineString("APP_URL", { default: "https://app.hrms-ats.app" });
 export const APP_LOGO_URL = defineString("APP_LOGO_URL", { default: "" });
 export const SUPPORT_EMAIL = defineString("SUPPORT_EMAIL", { default: "support@hrms-ats.app" });
@@ -30,9 +30,9 @@ const DEFAULTS: Record<string, string> = {
   SMTP_HOST: "smtp.gmail.com",
   SMTP_PORT: "587",
   SMTP_USER: "",
-  MAIL_FROM_NAME: "HRMS & ATS",
+  MAIL_FROM_NAME: "HRMS",
   MAIL_FROM_ADDRESS: "no-reply@hrms-ats.app",
-  APP_NAME: "HRMS & ATS",
+  APP_NAME: "HRMS",
   APP_URL: "https://app.hrms-ats.app",
   APP_LOGO_URL: "",
   SUPPORT_EMAIL: "support@hrms-ats.app",

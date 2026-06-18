@@ -2,7 +2,7 @@
  * AuthContext
  *
  * Provides application-wide authentication and authorization state for the
- * multi-tenant HRMS/ATS app. It bridges Firebase Auth and Firestore so that
+ * multi-tenant HRMS app. It bridges Firebase Auth and Firestore so that
  * consumers can read the current Firebase user, their Firestore user profile,
  * the active tenant, and the resolved RBAC permissions / data access level for
  * the active tenant's role.

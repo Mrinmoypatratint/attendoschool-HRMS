@@ -60,9 +60,9 @@ exports.SMTP_HOST = (0, params_1.defineString)("SMTP_HOST", { default: "smtp.gma
 exports.SMTP_PORT = (0, params_1.defineString)("SMTP_PORT", { default: "587" });
 exports.SMTP_USER = (0, params_1.defineString)("SMTP_USER", { default: "" });
 exports.SMTP_PASSWORD = (0, params_1.defineSecret)("SMTP_PASSWORD");
-exports.MAIL_FROM_NAME = (0, params_1.defineString)("MAIL_FROM_NAME", { default: "HRMS & ATS" });
+exports.MAIL_FROM_NAME = (0, params_1.defineString)("MAIL_FROM_NAME", { default: "HRMS" });
 exports.MAIL_FROM_ADDRESS = (0, params_1.defineString)("MAIL_FROM_ADDRESS", { default: "no-reply@hrms-ats.app" });
-exports.APP_NAME = (0, params_1.defineString)("APP_NAME", { default: "HRMS & ATS" });
+exports.APP_NAME = (0, params_1.defineString)("APP_NAME", { default: "HRMS" });
 exports.APP_URL = (0, params_1.defineString)("APP_URL", { default: "https://app.hrms-ats.app" });
 exports.APP_LOGO_URL = (0, params_1.defineString)("APP_LOGO_URL", { default: "" });
 exports.SUPPORT_EMAIL = (0, params_1.defineString)("SUPPORT_EMAIL", { default: "support@hrms-ats.app" });
@@ -73,9 +73,9 @@ const DEFAULTS = {
     SMTP_HOST: "smtp.gmail.com",
     SMTP_PORT: "587",
     SMTP_USER: "",
-    MAIL_FROM_NAME: "HRMS & ATS",
+    MAIL_FROM_NAME: "HRMS",
     MAIL_FROM_ADDRESS: "no-reply@hrms-ats.app",
-    APP_NAME: "HRMS & ATS",
+    APP_NAME: "HRMS",
     APP_URL: "https://app.hrms-ats.app",
     APP_LOGO_URL: "",
     SUPPORT_EMAIL: "support@hrms-ats.app",

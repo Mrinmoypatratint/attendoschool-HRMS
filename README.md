@@ -1,4 +1,4 @@
-# Enterprise HRMS & ATS SaaS Platform
+# Enterprise HRMS SaaS Platform
 
 An enterprise-grade, multi-tenant Human Resource Management System (HRMS) and Applicant Tracking System (ATS) built with React, TypeScript, and Firebase. 
 

@@ -225,7 +225,7 @@ export function LoginPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600 font-bold text-xl">
             HR
           </div>
-          <h1 className="mt-4 text-2xl font-bold text-slate-900 tracking-tight">Enterprise HRMS & ATS</h1>
+          <h1 className="mt-4 text-2xl font-bold text-slate-900 tracking-tight">Enterprise HRMS</h1>
           <p className="mt-1.5 text-sm text-slate-500">Simplify your people operations and recruitment</p>
         </div>
 
