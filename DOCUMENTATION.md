@@ -25,16 +25,17 @@ This document provides a comprehensive technical blueprint, workflow specificati
 7. [API & Event Trigger Documentation](#7-api--event-trigger-documentation)
 8. [End-to-End Business Processes & Workflows](#8-end-to-end-business-processes--workflows)
 9. [UML & Sequence Diagrams](#9-uml--sequence-diagrams)
-10. [Folder & Directory Structure](#10-folder--directory-structure)
-11. [Installation & Setup Guide](#11-installation--setup-guide)
-12. [Environment Variables Reference](#12-environment-variables-reference)
-13. [Testing & QA Strategy](#13-testing--qa-strategy)
-14. [Deployment Architecture & CI/CD Flow](#14-deployment-architecture--cicd-flow)
-15. [Security & Compliance Architecture](#15-security--compliance-architecture)
-16. [Operations & Administration Manual](#16-operations--administration-manual)
-17. [Troubleshooting & FAQs](#17-troubleshooting--faqs)
-18. [Known Limitations & Product Roadmap](#18-known-limitations--product-roadmap)
-19. [Conclusion](#19-conclusion)
+10. [Frontend Components & Pages Specification](#10-frontend-components--pages-specification)
+11. [Folder & Directory Structure](#11-folder--directory-structure)
+12. [Installation & Setup Guide](#12-installation--setup-guide)
+13. [Environment Variables Reference](#13-environment-variables-reference)
+14. [Testing & QA Strategy](#14-testing--qa-strategy)
+15. [Deployment Architecture & CI/CD Flow](#15-deployment-architecture--cicd-flow)
+16. [Security & Compliance Architecture](#16-security--compliance-architecture)
+17. [Operations & Administration Manual](#17-operations--administration-manual)
+18. [Troubleshooting & FAQs](#18-troubleshooting--faqs)
+19. [Known Limitations & Product Roadmap](#19-known-limitations--product-roadmap)
+20. [Conclusion](#20-conclusion)
 
 ---
 
@@ -901,7 +902,136 @@ graph TD
 
 ---
 
-## 10. Folder & Directory Structure
+## 10. Frontend Components & Pages Specification
+
+The client application is built with React 18, TypeScript, and TailwindCSS. It utilizes client-side routing via React Router and interfaces directly with Firestore and Firebase Cloud Functions.
+
+### 10.1 Shared Layout & Shell Components (`/frontend/src/components/layout`)
+
+#### 10.1.1 `AppShell.tsx`
+*   **Purpose:** The wrapper component defining the structure of the authenticated dashboard interface.
+*   **Working & Interactivity:** It renders the responsive side navigation panel (`Sidebar`) alongside the top toolbar header (`TopHeader`), wrapping the router `<Outlet />` element to present the page contents based on the current URL.
+
+#### 10.1.2 `Sidebar.tsx`
+*   **Purpose:** The main sidebar navigation menu.
+*   **Working & Interactivity:** 
+    *   Retrieves active profile and tenant parameters from `AuthContext`.
+    *   Utilizes the `useHasPermission` hook to evaluate menu item visibility dynamically. Menu links (e.g., **Access Control**, **Teams**, **Leave Management**) are only rendered if the logged-in user possesses the required scoped view permissions (e.g., `roles.view`, `teams.view`, `leave.view`).
+    *   Dynamically supports collapsed and expanded layout toggles to optimize desktop screen real estate.
+
+#### 10.1.3 `TopHeader.tsx`
+*   **Purpose:** The top navigation panel containing global user context actions.
+*   **Working & Interactivity:**
+    *   Displays current organization/tenant selector dropdown. Choosing a different tenant triggers `updateActiveTenantId` in `AuthContext`, triggering a real-time hot swap of the client's dataset.
+    *   Integrates the `NotificationBell` component to show real-time in-app alerts.
+    *   Provides user profile settings link and the "Sign Out" action button.
+
+---
+
+### 10.2 Shared Authentication Guards (`/frontend/src/components/auth`)
+
+#### 10.2.1 `AuthGuard.tsx`
+*   **Purpose:** Route protection wrapper enforcing authentication.
+*   **Working & Interactivity:**
+    *   Listens to the loading states inside `AuthContext`.
+    *   If a session is unauthenticated, it redirects the browser to the `/login` route while saving the redirection history state to return the user back to their destination upon successful login.
+
+#### 10.2.2 `PermissionGate.tsx`
+*   **Purpose:** Component-level permission check boundary.
+*   **Working & Interactivity:**
+    *   Accepts a `permission` (e.g. `employees.create`) and wraps target UI elements.
+    *   Leverages `useHasPermission()` under the hood. If the check returns `false`, it renders a blank state or a custom fallback UI, preventing unauthorized users from seeing specific buttons, sections, or actions.
+
+#### 10.2.3 `ProtectedRoute.tsx`
+*   **Purpose:** Route-level permission gate.
+*   **Working & Interactivity:**
+    *   Wraps React Router route definitions.
+    *   Checks if the authenticated user has the specific `permission` required to access a page. If unauthorized, it redirects the user to the dashboard and displays a warning toast.
+
+---
+
+### 10.3 Shared Atomic UI Components (`/frontend/src/components/ui`)
+
+#### 10.3.1 `EmptyState.tsx`
+*   **Purpose:** Reusable placeholder presented when search queries, database collections, or lists contain zero records.
+*   **Working & Interactivity:** Features customizable iconography, title, descriptive message, and a call-to-action button callback to clear filters or trigger forms.
+
+#### 10.3.2 `ErrorState.tsx`
+*   **Purpose:** Reusable fallback interface rendered when network operations fail, or when Firestore requests yield permission errors.
+*   **Working & Interactivity:** Features custom retry callback hooks so users can re-trigger failed database queries.
+
+#### 10.3.3 `LoadingScreen.tsx`
+*   **Purpose:** Global full-screen loading backdrop presented during auth bootstrapper initializations.
+*   **Working & Interactivity:** Renders smooth spin animations and placeholder skeletons to bridge async startup intervals.
+
+#### 10.3.4 `Skeleton.tsx`
+*   **Purpose:** Atomic loading indicators resembling actual layouts (cards, list tables).
+*   **Working & Interactivity:** Utilizes TailwindCSS pulsation classes (`animate-pulse`) to deliver rich micro-animations.
+
+---
+
+### 10.4 Feature Modules & Pages (`/frontend/src/features`)
+
+#### 10.4.1 Auth Module (`/features/auth/pages`)
+*   **`LoginPage.tsx`**: Renders the credential login fields. Integrates Firebase Auth to authenticate users. Connects with the tenant detection logic to redirect the user to their last active workspace.
+*   **`ForgotPasswordPage.tsx`**: Captures password reset submissions. Resolves the `requestPasswordReset` backend callable function, checking the user's rate limits and triggering OOB reset email dispatches.
+*   **`ResetPasswordPage.tsx`**: Decodes out-of-band Firebase Auth link codes (`oobCode`) passed via email to allow users to securely configure a new account password.
+
+#### 10.4.2 Dashboard Module (`/features/dashboard/pages`)
+*   **`DashboardPage.tsx`**: The main user landing dashboard.
+    *   **Working:** Reads user credentials and dynamic roles to render personalized welcome messages. Renders visual overview summaries (e.g., active department statistics, quick action links, in-flight leave summary records) conditional on permission boundaries.
+
+#### 10.4.3 Documents Module (`/features/documents`)
+*   **`DocumentsPage.tsx`**: Vault document storage system.
+    *   **Working:** Implements dynamic query-scoping logic based on user roles (`DocumentReadScope`). Admins/Managers view all documents; recruiters view candidate files; employees only query self/shared targets. Features list filters, upload triggers (restricting sizes to 5MB), and delete controls gated by permission guards.
+*   **`DocumentPreviewModal.tsx`**: Interactive inline viewer.
+    *   **Working:** Dynamically displays PDF pages or image assets inside modal wrappers, utilizing credentials to access Cloud Storage objects safely.
+
+#### 10.4.4 Employees Module (`/features/employees/pages`)
+*   **`EmployeesListPage.tsx`**: Master corporate staff table directory.
+    *   **Working:** Queries the `/employees` database records. Implements list sorting, pagination, and multi-field text search. Double-checks permissions to toggle access to department circularity settings, salary summaries, and onboarding account provision forms.
+*   **`EmployeeProfilePage.tsx`**: Individual staff file details panel.
+    *   **Working:** Pulls individual profile metadata across multiple databases (Emergency Contacts, Employment History, Assets, Leaves, Contracts). Limits salary/financial tabs to `hasPermission("employees.view")` checks.
+
+#### 10.4.5 Leave Module (`/features/leave/pages`)
+*   **`LeaveManagementPage.tsx`**: Time-off ledger & approvals.
+    *   **Working:**
+        *   For employees: allows submitting leave requests (calculates days, validates balance availability to block overdraft requests).
+        *   For managers/admins: lists pending requests and approval workflows. Approving or rejecting updates the document, triggering the database transaction that recalculates balances.
+
+#### 10.4.6 Notifications Module (`/features/notifications/components`)
+*   **`NotificationBell.tsx`**: Live in-app notification drawer.
+    *   **Working:** Subscribes to real-time updates inside the `/notifications` collection matching `userId == request.auth.uid`. Toggling the bell expands a list of notifications, allowing users to mark items as read or clear them instantly.
+
+#### 10.4.7 Access Control Module (`/features/rbac/pages`)
+*   **`RbacPage.tsx`**: Role and permission matrix grid dashboard.
+    *   **Working:** Features a matrix grid mapping all operational resources (e.g. users, teams, jobs, departments) against actions (view, create, update, delete). Toggling checkboxes writes overrides to `/roleOverrides` or `/roles` in real-time, instantly shifting permissions across client views. Restricted strictly to `hasPermission("roles.update")`.
+
+#### 10.4.8 Recruitment Module (`/features/recruitment`)
+*   **`JobsListPage.tsx`**: Internal corporate requisition board.
+    *   **Working:** Displays recruitment openings. Standard users view listings; recruiters can draft, approve, open, or close requisitions, configuring multi-stage workflows and approval gates.
+*   **`PipelinePage.tsx`**: Visual Kanban candidate tracking board.
+    *   **Working:** Implements a drag-and-drop workflow tracking candidate progress across defined stages. Dragging cards updates the candidate status dynamically.
+*   **`CandidateDrawer.tsx`**: Sliding panel with candidate details, resume preview, structured interviewer notes, and schedule scheduler forms.
+*   **`CareersPage.tsx`**: Public careers portal.
+    *   **Working:** Public-facing page listing open jobs. Contains application submission fields, rate-limited and protected to prevent spam.
+
+#### 10.4.9 Settings Module (`/features/settings/pages`)
+*   **`SettingsPage.tsx`**: Organization workspace configurations panel.
+    *   **Working:** Allows Org Admins to adjust branding colors, timezone, and log settings. Implements image upload hooks to customize corporate navigation logotypes.
+
+#### 10.4.10 Teams Module (`/features/teams/pages`)
+*   **`TeamsListPage.tsx`**: Visual group organizational hierarchy.
+    *   **Working:** Displays listing of teams. Admins can create new teams, link them to parent departments, and associate employees as team leads or members.
+
+#### 10.4.11 Users Module (`/features/users/pages`)
+*   **`UsersListPage.tsx`**: Organization user membership panel.
+    *   **Working:** Monitors users linked to the active tenant. Enables admins to change system role levels (using dynamic overrides checks), enable/disable access, and send invitations.
+*   **`UserDetailsPage.tsx`**: Basic user info page displaying active tenant profiles, membership logs, and security metadata.
+
+---
+
+## 11. Folder & Directory Structure
 
 The project is structured as an npm workspaces monorepo:
 
@@ -934,7 +1064,7 @@ hrms-ats-saas/
 
 ---
 
-## 11. Installation & Setup Guide
+## 12. Installation & Setup Guide
 
 ### 11.1 Prerequisites
 *   **Node.js:** Version `20.x` or higher.
@@ -973,7 +1103,7 @@ hrms-ats-saas/
 
 ---
 
-## 12. Environment Variables Reference
+## 13. Environment Variables Reference
 
 ### 12.1 Frontend Client (`frontend/.env`)
 ```env
@@ -1005,7 +1135,7 @@ APP_LOGO_URL=
 
 ---
 
-## 13. Testing & QA Strategy
+## 14. Testing & QA Strategy
 
 The platform maintains security and data integrity through comprehensive automated tests.
 
@@ -1053,7 +1183,7 @@ Use the following checklist to verify system configurations:
 
 ---
 
-## 14. Deployment Architecture & CI/CD Flow
+## 15. Deployment Architecture & CI/CD Flow
 
 The platform relies on Firebase Hosting for static client assets and Firebase Cloud Functions for server-side processing.
 
@@ -1097,7 +1227,7 @@ The platform relies on Firebase Hosting for static client assets and Firebase Cl
 
 ---
 
-## 15. Security & Compliance Architecture
+## 16. Security & Compliance Architecture
 
 ### 15.1 Multi-Tenant Separation Rules (`firestore.rules` & `storage.rules`)
 Firestore and Storage rules enforce logical boundaries:
@@ -1121,7 +1251,7 @@ const ref = db.collection("rateLimits").doc(key.replace(/[^a-zA-Z0-9_.-]/g, "_")
 
 ---
 
-## 16. Operations & Administration Manual
+## 17. Operations & Administration Manual
 
 ### 16.1 Demo Credentials (Local Emulators)
 Use these accounts to test various roles in local development.
@@ -1151,7 +1281,7 @@ Org Admins can override the default permission matrices for `hr_manager`, `recru
 
 ---
 
-## 17. Troubleshooting & FAQs
+## 18. Troubleshooting & FAQs
 
 ### 17.1 Frequently Asked Questions (FAQs)
 
@@ -1167,7 +1297,7 @@ Update your environment settings in `backend/.env`. In production, save SMTP cre
 
 ---
 
-## 18. Known Limitations & Product Roadmap
+## 19. Known Limitations & Product Roadmap
 
 ### 18.1 Known Limitations
 *   **Accrual Triggers:** Accrual calculations run on demand. A recurring cron schedule will be added in a future update to automate monthly leave balance accruals.
@@ -1193,7 +1323,7 @@ Update your environment settings in `backend/.env`. In production, save SMTP cre
 
 ---
 
-## 19. Conclusion
+## 20. Conclusion
 
 The **Enterprise HRMS platform** is built on a modern, secure architecture that combines React, TypeScript, and Firebase. Its robust multi-tenant isolation, dynamic permission controls, and secure transactional business logic make it an ideal foundation for managing employee lifecycles and talent acquisition in the enterprise.
 
