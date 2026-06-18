@@ -1,0 +1,400 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      // Throw-proof: returns the caller's user document data, or an empty map
+      // when unauthenticated or the user doc does not exist. This prevents
+      // rules "evaluation errors" (which surface as PERMISSION_DENIED with an
+      // evaluation-error message and are hard to debug) and instead yields a
+      // clean allow/deny.
+      return (isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+
+    function isMemberOfTenant(tenantId) {
+      return isAuthenticated() &&
+        getUserData().get('tenants', {}).get(tenantId, {}).get('status', '') == 'active';
+    }
+
+    function isOwnerOfRecord(employeeId) {
+      let path = /databases/$(database)/documents/employees/$(employeeId);
+      return exists(path) && get(path).data.userId == request.auth.uid;
+    }
+
+    // Effective permission list for a customizable system role within a tenant.
+    // Org/Super admins may tailor the HR Manager / Recruiter / Employee matrices;
+    // the customization is stored in /roleOverrides/{tenantId}_{role}. When an
+    // override exists it REPLACES the built-in defaults passed in; otherwise the
+    // provided defaults apply.
+    function rolePermissions(tenantId, roleType, defaults) {
+      let overrideId = tenantId + '_' + roleType;
+      let overridePath = /databases/$(database)/documents/roleOverrides/$(overrideId);
+      return exists(overridePath)
+        ? get(overridePath).data.get('permissions', [])
+        : defaults;
+    }
+
+    function hasPermission(tenantId, permission) {
+      // Throw-proof role lookup: missing tenant membership yields '' (no match).
+      let role = getUserData().get('tenants', {}).get(tenantId, {}).get('role', '');
+      return isMemberOfTenant(tenantId) && (
+        role == 'super_admin' || 
+        role == 'org_admin' ||
+        // HR Manager permission checks (admins may customize this matrix per-tenant)
+        (role == 'hr_manager' && (permission in rolePermissions(tenantId, 'hr_manager', [
+          'users.view', 'users.create', 'users.update',
+          'departments.view', 'departments.create', 'departments.update', 'departments.delete',
+          'teams.view', 'teams.create', 'teams.update', 'teams.delete',
+          'jobs.view',
+          'candidates.view',
+          'employees.view', 'employees.create', 'employees.update', 'employees.delete',
+          'leave.view', 'leave.create', 'leave.update', 'leave.delete', 'leave.approve',
+          'documents.view', 'documents.create', 'documents.update', 'documents.delete'
+        ]))) ||
+        // Recruiter permission checks (admins may customize this matrix per-tenant)
+        (role == 'recruiter' && (permission in rolePermissions(tenantId, 'recruiter', [
+          'users.view',
+          'departments.view',
+          'jobs.view', 'jobs.create', 'jobs.update', 'jobs.delete',
+          'candidates.view', 'candidates.create', 'candidates.update', 'candidates.delete', 'candidates.export'
+        ]))) ||
+        // Employee permission checks (admins may customize this matrix per-tenant)
+        (role == 'employee' && (permission in rolePermissions(tenantId, 'employee', [
+          'users.view',
+          'departments.view',
+          'teams.view',
+          'jobs.view',
+          'employees.view',
+          'leave.view', 'leave.create',
+          'documents.view'
+        ]))) ||
+        // Custom Role permission checks (read role document from the root collection)
+        (role != 'super_admin' && role != 'org_admin' && role != 'hr_manager' && role != 'recruiter' && role != 'employee' &&
+         exists(/databases/$(database)/documents/roles/$(role)) &&
+         permission in get(/databases/$(database)/documents/roles/$(role)).data.get('permissions', []))
+      );
+    }
+
+    // Rules for /users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // SEC-001: a user may edit their OWN profile (displayName, photoURL,
+      // activeTenantId, etc.) but MUST NOT change their tenant memberships or
+      // roles — otherwise any user could self-promote to org_admin. Role/tenant
+      // grants may only be changed by a holder of users.update (admins), or by
+      // the Admin SDK (invitations / provisioning), which bypasses rules.
+      allow update: if isAuthenticated() && (
+        hasPermission(getUserData().activeTenantId, 'users.update') ||
+        (
+          request.auth.uid == userId &&
+          request.resource.data.tenants == resource.data.tenants
+        )
+      );
+      allow delete: if false;
+    }
+
+    // Rules for /tenants collection
+    match /tenants/{tenantId} {
+      allow read: if isMemberOfTenant(tenantId);
+      allow create: if isAuthenticated();
+      allow update: if hasPermission(tenantId, 'roles.update'); // Admins can update tenant settings
+      allow delete: if false;
+    }
+
+    // Rules for root /roles collection
+    match /roles/{roleId} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.delete') && !resource.data.isSystemRole;
+    }
+
+    // Rules for root /roleOverrides collection
+    //
+    // Tenant-scoped customizations of a system role's permission matrix (e.g. the
+    // Employee role). Doc id is `${tenantId}_${systemRoleType}`. Any tenant member
+    // may read (the override drives their own effective permissions), but only
+    // holders of roles.update (org_admin / super_admin) may create, modify, or
+    // remove an override.
+    match /roleOverrides/{overrideId} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.update');
+    }
+
+    // Rules for root /userRoles collection
+    match /userRoles/{userRoleId} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.delete');
+    }
+
+    // Rules for /invitations collection
+    match /invitations/{inviteId} {
+      allow read: if isAuthenticated() && (
+        request.auth.token.email == resource.data.email ||
+        isMemberOfTenant(resource.data.tenantId)
+      );
+      allow create: if isAuthenticated() && 
+        request.resource.data.status == 'pending' && 
+        hasPermission(request.resource.data.tenantId, 'users.create');
+      
+      allow update: if isAuthenticated() && (
+        (resource.data.email == request.auth.token.email) ||
+        hasPermission(resource.data.tenantId, 'users.update')
+      );
+      allow delete: if isAuthenticated() && hasPermission(resource.data.tenantId, 'users.delete');
+    }
+
+    // Rules for /departments collection
+    match /departments/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'departments.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'departments.delete');
+    }
+
+    // Rules for /teams collection
+    match /teams/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'teams.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'teams.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'teams.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'teams.delete');
+    }
+
+    // Rules for /jobs collection
+    match /jobs/{id} {
+      // Authenticated tenant members with jobs.view can read; additionally,
+      // anyone (incl. unauthenticated careers-page visitors) may read a job
+      // that is explicitly published and open.
+      allow read: if (resource.data.isPublished == true && resource.data.status == 'open') ||
+        (isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'jobs.view'));
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'jobs.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'jobs.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'jobs.delete');
+    }
+
+    // Rules for /candidates collection
+    match /candidates/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'candidates.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.delete');
+    }
+
+    // Rules for /candidateNotes collection (notes are scoped under candidates.*)
+    match /candidateNotes/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'candidates.update')
+        && request.resource.data.authorId == request.auth.uid;
+      // Notes are immutable once written; only the author (or a candidates.delete holder) can remove them.
+      allow update: if false;
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        resource.data.authorId == request.auth.uid || hasPermission(resource.data.tenantId, 'candidates.delete')
+      );
+    }
+
+    // Rules for /interviews collection (scoped under candidates.*)
+    match /interviews/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'candidates.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.update');
+    }
+
+    // Rules for /offers collection (scoped under candidates.*)
+    match /offers/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'candidates.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'candidates.delete');
+    }
+
+    // Rules for /employees collection
+    match /employees/{id} {
+      // A get() on a NON-EXISTENT doc yields resource == null; allow it so the
+      // create flow's employee-ID uniqueness check (getDoc before setDoc) returns
+      // cleanly instead of erroring on null.data and surfacing as permission-denied.
+      // There is no data to disclose for a non-existent document.
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        (isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.view'))
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.delete');
+    }
+
+    // Employee sub-records (contracts, emergency contacts, employment history,
+    // assets, lifecycle events). All scoped under the employees.* permissions.
+
+    // SEC-002: Compensation is sensitive and must NOT be exposed via the
+    // world-(tenant)-readable employees doc. Salary lives here and is readable
+    // ONLY by holders of employees.update (HR/admins) or the record's owner.
+    match /employeeCompensation/{employeeId} {
+      allow read: if isAuthenticated() && (
+        resource == null ||
+        (isMemberOfTenant(resource.data.tenantId) && (
+          hasPermission(resource.data.tenantId, 'employees.update') ||
+          isOwnerOfRecord(employeeId)
+        ))
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.delete');
+    }
+
+    match /employeeContracts/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.delete');
+    }
+
+    match /emergencyContacts/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+    }
+
+    match /employmentHistory/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.delete');
+    }
+
+    match /employeeAssets/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.update');
+    }
+
+    match /lifecycleEvents/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'employees.update');
+      // Lifecycle events are an immutable audit trail.
+      allow update: if false;
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'employees.delete');
+    }
+
+    // Rules for /leaveRequests collection
+    match /leaveRequests/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'leave.approve') ||
+        hasPermission(resource.data.tenantId, 'leave.update') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'leave.create') &&
+        isOwnerOfRecord(request.resource.data.employeeId)
+      );
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'leave.update') || 
+        hasPermission(resource.data.tenantId, 'leave.approve') ||
+        (isOwnerOfRecord(resource.data.employeeId) && request.resource.data.status == 'cancelled' && (resource.data.status == 'pending' || resource.data.status == 'approved'))
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.delete');
+    }
+
+    // Leave configuration: leave types, policies, holiday calendars (admin-managed).
+    match /leaveTypes/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'leave.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.delete');
+    }
+
+    match /leavePolicies/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'leave.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.delete');
+    }
+
+    match /holidayCalendars/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.view');
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'leave.update');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.delete');
+    }
+
+    // Leave balances: updated by accrual runs and request approvals.
+    match /leaveBalances/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'leave.update') ||
+        hasPermission(resource.data.tenantId, 'leave.approve') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (hasPermission(request.resource.data.tenantId, 'leave.update') || hasPermission(request.resource.data.tenantId, 'leave.approve'));
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (hasPermission(resource.data.tenantId, 'leave.update') || hasPermission(request.resource.data.tenantId, 'leave.approve'));
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'leave.delete');
+    }
+
+    // Rules for /documents collection
+    //
+    // READ keeps role/scope semantics (admins + recruiters-for-candidate docs
+    // can see everything in their lane; everyone else sees shared docs and docs
+    // targeted to them). CREATE/UPDATE/DELETE are permission-driven via the RBAC
+    // matrix (documents.create/update/delete), so custom roles that are granted
+    // those permissions can manage documents — same as the other collections.
+    // The recruiter+candidate special case is preserved for backwards-compat.
+    match /documents/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.get('tenantId', '')) && (
+        getUserData().tenants[resource.data.get('tenantId', '')].role in ['super_admin', 'org_admin', 'hr_manager'] ||
+        (getUserData().tenants[resource.data.get('tenantId', '')].role == 'recruiter' && resource.data.get('type', '') == 'candidate') ||
+        (resource.data.get('accessLevel', '') == 'shared') ||
+        (resource.data.get('targetUserId', '') == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.get('tenantId', '')) && (
+        hasPermission(request.resource.data.get('tenantId', ''), 'documents.create') ||
+        (getUserData().tenants[request.resource.data.get('tenantId', '')].role == 'recruiter' && request.resource.data.get('type', '') == 'candidate')
+      );
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.get('tenantId', '')) && (
+        hasPermission(resource.data.get('tenantId', ''), 'documents.update') ||
+        (getUserData().tenants[resource.data.get('tenantId', '')].role == 'recruiter' && resource.data.get('type', '') == 'candidate')
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.get('tenantId', '')) && (
+        hasPermission(resource.data.get('tenantId', ''), 'documents.delete') ||
+        (getUserData().tenants[resource.data.get('tenantId', '')].role == 'recruiter' && resource.data.get('type', '') == 'candidate')
+      );
+    }
+
+    // Rules for /notifications collection
+    //
+    // In-app notifications addressed to a specific user. Created server-side
+    // (Cloud Functions) on approval events, but tenant members may also create
+    // them. A recipient may read, mark-read (update), or dismiss (delete) ONLY
+    // their own notifications; the userId/tenantId are immutable on update.
+    match /notifications/{id} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId);
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.tenantId == resource.data.tenantId;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Rules for /auditLogs collection
+    match /auditLogs/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        getUserData().tenants[resource.data.tenantId].role == 'super_admin' || 
+        getUserData().tenants[resource.data.tenantId].role == 'org_admin'
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId);
+      allow update, delete: if false; // Audit logs are immutable
+    }
+  }
+}

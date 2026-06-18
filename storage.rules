@@ -1,0 +1,120 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ---- Helpers ------------------------------------------------------------
+    function fsUser() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function memberRole(tenantId) {
+      return fsUser().tenants[tenantId].role;
+    }
+    function isActiveMember(tenantId) {
+      return request.auth != null && fsUser().tenants[tenantId].status == 'active';
+    }
+    // A custom (non-system) role grants vault mutation if its role document
+    // carries any document mutation permission. System roles are matched by
+    // name below, mirroring firestore.rules.
+    function customRoleCanMutateVault(tenantId) {
+      let rolePath = /databases/(default)/documents/roles/$(memberRole(tenantId));
+      return firestore.exists(rolePath) && (
+        'documents.create' in firestore.get(rolePath).data.permissions ||
+        'documents.update' in firestore.get(rolePath).data.permissions ||
+        'documents.delete' in firestore.get(rolePath).data.permissions
+      );
+    }
+    // A system role whose permission matrix has been customized for this tenant.
+    // When such an override exists it is AUTHORITATIVE for that role (it replaces
+    // the built-in allowance below), mirroring the /roleOverrides model and the
+    // `rolePermissions` logic in firestore.rules. Override id is `${tenantId}_${role}`.
+    function systemRoleOverridePath(tenantId) {
+      return /databases/(default)/documents/roleOverrides/$(tenantId + '_' + memberRole(tenantId));
+    }
+    function hasSystemRoleOverride(tenantId) {
+      return firestore.exists(systemRoleOverridePath(tenantId));
+    }
+    function systemRoleOverrideCanMutateVault(tenantId) {
+      let perms = firestore.get(systemRoleOverridePath(tenantId)).data.get('permissions', []);
+      return 'documents.create' in perms ||
+        'documents.update' in perms ||
+        'documents.delete' in perms;
+    }
+    function canMutateVault(tenantId) {
+      return isActiveMember(tenantId) && (
+        // A tenant override (HR Manager / Recruiter / Employee) is authoritative.
+        hasSystemRoleOverride(tenantId)
+          ? systemRoleOverrideCanMutateVault(tenantId)
+          : (
+              memberRole(tenantId) in ['super_admin', 'org_admin', 'hr_manager', 'recruiter'] ||
+              customRoleCanMutateVault(tenantId)
+            )
+      );
+    }
+
+    match /tenants/{tenantId}/logos/{allPaths=**} {
+      // Tenant logo is public to read (for login screens / headers before full auth)
+      allow read: if true;
+      // Writing requires authentication and admin privileges in the tenant
+      allow write: if request.auth != null && 
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenants[tenantId].status == 'active' &&
+        (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenants[tenantId].role in ['super_admin', 'org_admin', 'hr_manager']);
+    }
+
+    // Candidate resumes.
+    match /tenants/{tenantId}/resumes/{fileName} {
+      // Only authenticated tenant members may read resumes.
+      allow read: if request.auth != null &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenants[tenantId].status == 'active';
+
+      // Create is allowed for:
+      //  - authenticated tenant members (internal candidate creation), and
+      //  - unauthenticated careers-page applicants (public job applications).
+      // SECURITY NOTE: public create enables anonymous uploads to support the
+      // careers page. It is constrained to <= 5MB and resume MIME types to
+      // limit abuse. Consider adding App Check / rate limiting before launch.
+      allow create: if request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+      // Overwrite/delete restricted to authenticated tenant members.
+      allow update, delete: if request.auth != null &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenants[tenantId].status == 'active';
+    }
+
+    // Employee documents (e.g. signed contracts). Authenticated tenant members only.
+    match /tenants/{tenantId}/employee-docs/{allPaths=**} {
+      allow read, write: if request.auth != null &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenants[tenantId].status == 'active';
+    }
+
+    // Vault documents. Secure storage scoped under tenants/{tenantId}/documents/{docId}
+    match /tenants/{tenantId}/documents/{docId} {
+      allow read: if request.auth != null && isActiveMember(tenantId) &&
+        (
+          memberRole(tenantId) in ['super_admin', 'org_admin', 'hr_manager'] ||
+          // Anyone allowed to manage the vault may read it. Placed before the
+          // metadata lookups so it short-circuits and also covers the moment
+          // right after upload, when the Firestore metadata doc does not yet
+          // exist (e.g. getDownloadURL called by the uploader).
+          canMutateVault(tenantId) ||
+          // Metadata-driven access. Guarded by exists() so that reading an
+          // object whose metadata doc is missing (e.g. mid-upload, or an
+          // orphaned file) yields a clean permission denial rather than a
+          // rules evaluation error — the latter surfaces as an HTTP 500 that
+          // the Storage SDK retries, making uploads appear to hang ("stuck").
+          (
+            firestore.exists(/databases/(default)/documents/documents/$(docId)) &&
+            (
+              firestore.get(/databases/(default)/documents/documents/$(docId)).data.accessLevel == 'shared' ||
+              firestore.get(/databases/(default)/documents/documents/$(docId)).data.targetUserId == request.auth.uid ||
+              (
+                memberRole(tenantId) == 'recruiter' &&
+                firestore.get(/databases/(default)/documents/documents/$(docId)).data.type == 'candidate'
+              )
+            )
+          )
+        );
+      allow write: if canMutateVault(tenantId);
+    }
+
+  }
+}

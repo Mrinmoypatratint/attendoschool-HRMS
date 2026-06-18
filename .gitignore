@@ -1,0 +1,45 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Environment files (may contain secrets such as SMTP credentials)
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+.secret.local
+**/.secret.local
+!.env.example
+!**/.env.example
+
+# Production builds
+dist/
+build/
+out/
+
+# Firebase Cache & Data Persistence
+.firebase/
+.firebase-emulator-data/
+*-debug.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp exports
+firebase-export-*/
+

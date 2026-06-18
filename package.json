@@ -1,0 +1,26 @@
+{
+  "name": "hrms-ats-saas",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "middleware"
+  ],
+  "scripts": {
+    "lint": "npm -ws run lint",
+    "typecheck": "npm -ws run typecheck",
+    "build": "npm -ws run build",
+    "dev": "npm -ws run dev",
+    "test": "npm -ws run test",
+    "test:rules": "firebase emulators:exec --only firestore \"node tests/rules/rules.test.mjs\"",
+    "seed": "node backend/seed-demo.cjs",
+    "emulators": "firebase emulators:start --import=./.firebase-emulator-data --export-on-exit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@typescript-eslint/parser": "^8.61.1",
+    "firebase": "^12.15.0"
+  }
+}
