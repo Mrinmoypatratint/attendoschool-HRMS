@@ -182,7 +182,8 @@ export const SYSTEM_ROLES: Record<SystemRoleType, SystemRoleConfig> = {
       "users.view",
       "departments.view",
       "jobs.view", "jobs.create", "jobs.update", "jobs.delete",
-      "candidates.view", "candidates.create", "candidates.update", "candidates.delete", "candidates.export"
+      "candidates.view", "candidates.create", "candidates.update", "candidates.delete", "candidates.export",
+      "employees.view"
     ],
     dataAccessLevel: "all"
   },

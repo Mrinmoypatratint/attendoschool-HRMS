@@ -253,6 +253,7 @@ const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
     "departments.view",
     "jobs.view", "jobs.create", "jobs.update", "jobs.delete",
     "candidates.view", "candidates.create", "candidates.update", "candidates.delete", "candidates.export",
+    "employees.view",
   ],
   employee: [
     "users.view",
@@ -401,10 +402,10 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
   }
 
   const callerData = callerSnap.data();
-  const callerTenantInfo = callerData?.tenants?.[tenantId];
+  const callerAccess = await getCallerAccess(callerUid, tenantId);
 
-  // Restrict operation to administrative roles
-  if (!callerTenantInfo || (callerTenantInfo.role !== "org_admin" && callerTenantInfo.role !== "hr_manager" && callerTenantInfo.role !== "super_admin")) {
+  // Restrict operation to dynamic authorization check
+  if (!callerAccess.all && !callerAccess.perms.has("users.create")) {
     throw new functions.https.HttpsError("permission-denied", "You do not have permission to invite users to this tenant.");
   }
 
@@ -417,28 +418,71 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
   }
 
   const now = FieldValue.serverTimestamp();
+  let setPasswordUrl: string | null = null;
 
-  // If user exists, associate tenant membership in pending invited status directly
-  if (existingUserRecord) {
-    const userRef = db.collection("users").doc(existingUserRecord.uid);
-    const userSnap = await userRef.get();
+  if (!existingUserRecord) {
+    // 1. Create Firebase Auth user
+    const randomPassword =
+      Math.random().toString(36).slice(2) +
+      Math.random().toString(36).slice(2).toUpperCase() +
+      "!7";
+    existingUserRecord = await admin.auth().createUser({
+      email,
+      emailVerified: false,
+      password: randomPassword,
+    });
 
-    if (userSnap.exists) {
-      const userData = userSnap.data();
-      if (userData?.tenants?.[tenantId]) {
-        throw new functions.https.HttpsError("already-exists", "User is already associated with this tenant.");
-      }
-
-      await userRef.update({
-        [`tenants.${tenantId}`]: {
-          role,
-          status: "invited",
-          invitedAt: now,
-        },
-        updatedAt: now,
+    // 2. Generate password-reset URL as a "set password" activation step
+    const appUrl = getAppUrl();
+    try {
+      const actionLink = await admin.auth().generatePasswordResetLink(email, {
+        url: `${appUrl}/login`,
+        handleCodeInApp: false,
+      });
+      const oobCode = new URL(actionLink).searchParams.get("oobCode") || "";
+      setPasswordUrl = oobCode
+        ? `${appUrl}/reset-password?oobCode=${encodeURIComponent(oobCode)}`
+        : actionLink;
+    } catch (err) {
+      functions.logger.error("[inviteUser] failed to generate reset link", {
+        email,
+        error: err,
       });
     }
   }
+
+  const uid = existingUserRecord.uid;
+  const userRef = db.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  const existing = userSnap.exists ? (userSnap.data() as Record<string, any>) : null;
+
+  if (existing?.tenants?.[tenantId]) {
+    throw new functions.https.HttpsError("already-exists", "User is already associated with this tenant.");
+  }
+
+  // Set or merge user profile with active status
+  const profile: Record<string, any> = {
+    id: uid,
+    email,
+    displayName: existing?.displayName || email.split("@")[0] || "User",
+    photoURL: existing?.photoURL ?? null,
+    updatedAt: now,
+    tenants: {
+      [tenantId]: {
+        role,
+        status: "active",
+        joinedAt: now,
+      },
+    },
+  };
+  if (!existing?.activeTenantId) {
+    profile.activeTenantId = tenantId;
+  }
+  if (!existing) {
+    profile.createdAt = now;
+  }
+
+  await userRef.set(profile, { merge: true });
 
   // Create audit invitation tracking
   const inviteId = `${tenantId}_${email.replace(/[^a-zA-Z0-9]/g, "_")}`;
@@ -450,8 +494,9 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
     tenantId,
     role,
     invitedBy: callerUid,
-    status: "pending",
+    status: "accepted",
     createdAt: now,
+    updatedAt: now,
   });
 
   // Dispatch email notification (non-blocking, logged if failed)
@@ -460,7 +505,7 @@ export const inviteUser = functions.runWith({ secrets: MAIL_SECRETS, enforceAppC
     const organizationName = (tenantSnap.data()?.name as string) || "your organization";
     const inviterName = (callerData?.displayName as string) || undefined;
 
-    const acceptUrl = `${getAppUrl()}/login?email=${encodeURIComponent(
+    const acceptUrl = setPasswordUrl || `${getAppUrl()}/login?email=${encodeURIComponent(
       email
     )}&invite=${encodeURIComponent(inviteId)}`;
 

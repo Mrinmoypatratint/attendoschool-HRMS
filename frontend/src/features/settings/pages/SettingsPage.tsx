@@ -19,6 +19,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
+import { useHasPermission } from "../../rbac/hooks/usePermissions";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { Building2, Upload, MapPin, Globe, CheckCircle, Palette, Activity, Mail, RefreshCw, Check } from "lucide-react";
 import { AuditLogService } from "../services/auditLogService";
@@ -214,9 +215,8 @@ export function SettingsPage() {
     }
   }, [activeTab, tenantId]);
 
-  const currentUserRole = profile?.tenants[tenantId]?.role || "";
-  const isAuthorizedToManage =
-    currentUserRole === "org_admin" || currentUserRole === "super_admin" || currentUserRole === "hr_manager";
+  const hasPermission = useHasPermission();
+  const isAuthorizedToManage = hasPermission("roles.update");
 
   if (!activeTenant) {
     return (

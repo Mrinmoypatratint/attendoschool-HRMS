@@ -27,7 +27,7 @@ describe("RBAC Permissions Configuration", () => {
       expect(recruiter.dataAccessLevel).toBe("all");
       expect(recruiter.permissions).toContain("jobs.create");
       expect(recruiter.permissions).toContain("candidates.export");
-      expect(recruiter.permissions).not.toContain("employees.view");
+      expect(recruiter.permissions).toContain("employees.view");
       expect(recruiter.permissions).not.toContain("leave.approve");
     });
 

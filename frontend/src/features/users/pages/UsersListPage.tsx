@@ -4,6 +4,7 @@ import { collection, query, where, getDocs, doc, updateDoc } from "firebase/fire
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
+import { useHasPermission } from "../../rbac/hooks/usePermissions";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { ErrorState } from "../../../components/ui/ErrorState";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -15,6 +16,7 @@ import { assignRoleToUser } from "../../rbac/utils/roleAssign";
 export function UsersListPage() {
   const { profile, activeTenant } = useAuth();
   const navigate = useNavigate();
+  const hasPermission = useHasPermission();
 
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -187,9 +189,7 @@ export function UsersListPage() {
     currentPage * itemsPerPage
   );
 
-  const currentUserRole = profile?.tenants[tenantId]?.role || "";
-  const isAuthorizedToManage =
-    currentUserRole === "org_admin" || currentUserRole === "super_admin" || currentUserRole === "hr_manager";
+
 
   if (loading) {
     return (
@@ -213,7 +213,7 @@ export function UsersListPage() {
           <h1 className="text-xl font-bold text-slate-900">Users & Team Members</h1>
           <p className="text-sm text-slate-500">Manage access and organization roles.</p>
         </div>
-        {isAuthorizedToManage && (
+        {hasPermission("users.create") && (
           <button
             onClick={() => {
               setInviteModalOpen(true);
@@ -311,7 +311,7 @@ export function UsersListPage() {
                   <th className="py-4 px-6">Email</th>
                   <th className="py-4 px-6">Role</th>
                   <th className="py-4 px-6">Status</th>
-                  {isAuthorizedToManage && <th className="py-4 px-6 text-right">Actions</th>}
+                  {hasPermission("users.update") && <th className="py-4 px-6 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -334,7 +334,7 @@ export function UsersListPage() {
                       </td>
                       <td className="py-4 px-6 text-sm text-slate-500">{member.email}</td>
                       <td className="py-4 px-6">
-                        {isAuthorizedToManage && member.id !== profile?.id ? (
+                        {hasPermission("users.update") && member.id !== profile?.id ? (
                           <select
                             value={memberTenant.role}
                             onChange={(e) => handleRoleChange(member.id, member, e.target.value)}
@@ -370,7 +370,7 @@ export function UsersListPage() {
                           {memberTenant.status}
                         </span>
                       </td>
-                      {isAuthorizedToManage && (
+                      {hasPermission("users.update") && (
                         <td className="py-4 px-6 text-right">
                           {member.id !== profile?.id && (
                             <button

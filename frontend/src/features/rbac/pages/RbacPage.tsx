@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { collection, doc, setDoc, getDocs, deleteDoc, query, where, updateDoc, orderBy } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
+import { useHasPermission } from "../hooks/usePermissions";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { ErrorState } from "../../../components/ui/ErrorState";
 import { 
@@ -41,6 +42,7 @@ const RESOURCES = [
   { key: "users", label: "Users", desc: "System directory and tenant profiles" },
   { key: "roles", label: "Roles", desc: "Access tiers and matrix configurations" },
   { key: "departments", label: "Departments", desc: "Corporate divisions and branches" },
+  { key: "teams", label: "Teams", desc: "Corporate departments and sub-teams" },
   { key: "jobs", label: "Jobs", desc: "ATS postings and recruitment pipeline" },
   { key: "candidates", label: "Candidates", desc: "ATS applicants and resumes" },
   { key: "employees", label: "Employees", desc: "Core employee profiles and files" },
@@ -214,10 +216,9 @@ export function RbacPage() {
     }
   }, [activeTab, tenantId]);
 
+  const hasPermission = useHasPermission();
   // Authorization: only org/super admins may mutate roles & matrices.
-  const isAuthorizedToManage =
-    profile?.tenants[tenantId]?.role === "org_admin" ||
-    profile?.tenants[tenantId]?.role === "super_admin";
+  const isAuthorizedToManage = hasPermission("roles.update");
 
   // Handle Selected Role change to initialize Draft Edit state
   const isSelectedRoleSystem = !selectedRole.startsWith("role_");
