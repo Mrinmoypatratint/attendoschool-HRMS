@@ -1023,6 +1023,21 @@ To run Firestore rules integration tests:
 npm run test:rules
 ```
 
+> [!TIP]
+> **Troubleshooting: Port 8080 Taken**
+> If you encounter `Error: Could not start Firestore Emulator, port taken`, port `8080` (the default Firestore emulator port) is already occupied.
+> 
+> * **Solution A (If Firebase Emulators are already running):**
+>   Instead of starting a new emulator instance, execute the test script directly against the running emulator:
+>   ```bash
+>   node tests/rules/rules.test.mjs
+>   ```
+> * **Solution B (Free up port 8080 on Windows/PowerShell):**
+>   Run the following command to terminate the process occupying port `8080`:
+>   ```powershell
+>   Stop-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess -Force
+>   ```
+
 ---
 
 ### 13.3 QA Validation Checklist
