@@ -1,7 +1,7 @@
-# TODO - Fix “Add Employee” permission issue
-
-- [x] Add permission guards in `frontend/src/features/employees/pages/EmployeesListPage.tsx` to prevent create/edit/delete employee actions when the user lacks:
-  - `employees.create`
-  - `employees.update`
-  - `employees.delete`
-- [x] Verify UI buttons already hidden still remain unchanged; ensure direct modal submit/delete is also blocked.
+- [ ] Update EmployeesListPage UI to be identical for all users with employees.view by using disabled states instead of conditional rendering:
+  - [ ] Always show Departments tab (tabs should not appear/disappear based on departments.view)
+  - [ ] Always show salary toggle and salary column header (disable/hide content only if needed, but keep layout consistent)
+  - [ ] Always show Actions column header and action cells; disable buttons when user lacks permissions
+  - [ ] Always render “Add Employee” and “Add Department” buttons, but disable based on employees.create / departments.create+update permissions
+- [ ] Update EmployeeProfilePage header “Send login email” button to render consistently with disabled state when !employees.update or missing employee.email
+- [ ] Run frontend typecheck/tests (if available) and ensure no TS/React errors

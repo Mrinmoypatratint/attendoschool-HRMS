@@ -33,16 +33,20 @@ import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from "firebase
 
 const app: FirebaseApp = initializeApp(firebaseConfig);
 
-// Initialize App Check
+/**
+ * Initialize App Check only for real (non-emulator) usage.
+ * In emulator mode, App Check frequently causes preflight/token-exchange
+ * issues that break callable requests from the browser.
+ */
 let appCheck: AppCheck | undefined = undefined;
-if (typeof window !== "undefined") {
-  if (import.meta.env.VITE_USE_EMULATOR === "true") {
-    // Enable self debug token for local emulator development
-    (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-  }
+if (typeof window !== "undefined" && import.meta.env.VITE_USE_EMULATOR !== "true") {
+  // Enable self debug token for local non-emulator development
+  // (not applied when VITE_USE_EMULATOR === "true")
+  (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+
   appCheck = initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider(
-      import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI" // Standard google test key
+      import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
     ),
     isTokenAutoRefreshEnabled: true,
   });
@@ -77,4 +81,4 @@ if (import.meta.env.VITE_USE_EMULATOR === "true") {
   connectFirestoreEmulator(db, host, 8080);
   connectStorageEmulator(storage, host, 9199);
   connectFunctionsEmulator(functions, host, 5001);
-}
+}

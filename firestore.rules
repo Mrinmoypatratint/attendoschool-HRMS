@@ -112,7 +112,7 @@ service cloud.firestore {
 
     // Rules for /tenants collection
     match /tenants/{tenantId} {
-      allow read: if isMemberOfTenant(tenantId);
+      allow read: if true; // Public read allowed for careers portal and sign-in page
       allow create: if isAuthenticated();
       allow update: if hasPermission(tenantId, 'roles.update'); // Admins can update tenant settings
       allow delete: if false;
@@ -143,8 +143,14 @@ service cloud.firestore {
     // Rules for root /userRoles collection
     match /userRoles/{userRoleId} {
       allow read: if isAuthenticated() && (resource == null || isMemberOfTenant(resource.data.tenantId));
-      allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'roles.update');
-      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'roles.delete');
+      allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'roles.update') ||
+        hasPermission(request.resource.data.tenantId, 'users.update')
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'roles.delete') ||
+        hasPermission(resource.data.tenantId, 'users.update')
+      );
     }
 
     // Rules for /invitations collection

@@ -222,17 +222,33 @@ export function EmployeeProfilePage() {
             </div>
           </div>
 
-          {canEdit && employee.email && (
-            <button
-              onClick={handleSendLoginEmail}
-              disabled={sendingLogin}
-              className="inline-flex items-center gap-1.5 self-start rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
-              title={employee.userId ? "Resend set-password email" : "Create a login and email a set-password link"}
-            >
-              <KeyRound size={15} className="text-blue-600" />
-              <span>{sendingLogin ? "Sending..." : employee.userId ? "Resend login email" : "Send login email"}</span>
-            </button>
-          )}
+          {/* Keep UI consistent for all users with employees.view:
+              Always render the button area; disable when no permission or missing email. */}
+          <button
+            onClick={handleSendLoginEmail}
+            disabled={!canEdit || !employee.email || sendingLogin}
+            className={`inline-flex items-center gap-1.5 self-start rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer ${
+              !canEdit || !employee.email ? "cursor-not-allowed" : ""
+            }`}
+            title={
+              !canEdit
+                ? "No permission to send login email"
+                : !employee.email
+                ? "Employee has no email"
+                : employee.userId
+                ? "Resend set-password email"
+                : "Create a login and email a set-password link"
+            }
+          >
+            <KeyRound size={15} className="text-blue-600" />
+            <span>
+              {sendingLogin
+                ? "Sending..."
+                : employee.userId
+                ? "Resend login email"
+                : "Send login email"}
+            </span>
+          </button>
         </div>
       </div>
 

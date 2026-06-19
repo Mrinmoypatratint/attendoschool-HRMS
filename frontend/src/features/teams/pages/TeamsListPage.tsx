@@ -26,6 +26,9 @@ import {
   Search,
   UserCheck,
   FolderTree,
+  Mail,
+  Phone,
+  MapPin,
 } from "lucide-react";
 import type { Team, Department, Employee } from "@hrms/middleware";
 
@@ -62,6 +65,9 @@ export function TeamsListPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
+
+  // View members state
+  const [viewingMembersTeam, setViewingMembersTeam] = useState<Team | null>(null);
 
   // Form inputs
   const [teamName, setTeamName] = useState("");
@@ -371,25 +377,39 @@ export function TeamsListPage() {
                     </div>
                   </div>
 
-                  {/* Member Avatars */}
-                  {memberCount > 0 && (
-                    <div className="flex items-center -space-x-2">
-                      {team.memberIds.slice(0, 5).map((memberId) => (
-                        <div
-                          key={memberId}
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[9px] font-extrabold text-slate-600 border-2 border-white"
-                          title={getEmployeeName(memberId)}
-                        >
-                          {getEmployeeInitials(memberId)}
-                        </div>
-                      ))}
-                      {memberCount > 5 && (
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-50 text-[9px] font-extrabold text-indigo-600 border-2 border-white">
-                          +{memberCount - 5}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Member Avatars & View Members Action */}
+                  <div className="flex items-center justify-between pt-1">
+                    {memberCount > 0 ? (
+                      <div className="flex items-center -space-x-2">
+                        {team.memberIds.slice(0, 5).map((memberId) => (
+                          <div
+                            key={memberId}
+                            className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-[9px] font-extrabold text-slate-600 border-2 border-white"
+                            title={getEmployeeName(memberId)}
+                          >
+                            {getEmployeeInitials(memberId)}
+                          </div>
+                        ))}
+                        {memberCount > 5 && (
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-50 text-[9px] font-extrabold text-indigo-600 border-2 border-white">
+                            +{memberCount - 5}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-400 italic">No members assigned</div>
+                    )}
+
+                    {memberCount > 0 && (
+                      <button
+                        onClick={() => setViewingMembersTeam(team)}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer flex items-center gap-1.5 hover:underline transition-colors"
+                      >
+                        <Users size={12} />
+                        <span>View Members</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -580,6 +600,148 @@ export function TeamsListPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== VIEW MEMBERS MODAL ==================== */}
+      {viewingMembersTeam && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-md relative overflow-y-auto max-h-[90dvh] space-y-4">
+            <button
+              onClick={() => setViewingMembersTeam(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                <Users size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-bold text-slate-900 truncate">
+                  Team Members — {viewingMembersTeam.name}
+                </h3>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-semibold mt-0.5">
+                  <span className="flex items-center gap-1">
+                    <FolderTree size={12} />
+                    {getDeptName(viewingMembersTeam.departmentId)}
+                  </span>
+                  <span>•</span>
+                  <span>{viewingMembersTeam.memberIds.length} Assigned Member{viewingMembersTeam.memberIds.length !== 1 ? "s" : ""}</span>
+                </div>
+              </div>
+            </div>
+
+            {viewingMembersTeam.description && (
+              <p className="text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                {viewingMembersTeam.description}
+              </p>
+            )}
+
+            <div className="max-h-[50dvh] overflow-y-auto pr-1 divide-y divide-slate-100">
+              {viewingMembersTeam.memberIds.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs italic">
+                  No members are currently assigned to this team.
+                </div>
+              ) : (
+                viewingMembersTeam.memberIds.map((memberId) => {
+                  const emp = employees.find((e) => e.id === memberId);
+                  if (!emp) {
+                    return (
+                      <div key={memberId} className="flex items-center justify-between py-3">
+                        <span className="text-xs text-slate-400 italic">Unknown Employee ({memberId})</span>
+                      </div>
+                    );
+                  }
+
+                  const isLead = viewingMembersTeam.leadId === emp.id;
+
+                  return (
+                    <div
+                      key={emp.id}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-3.5 gap-3"
+                    >
+                      {/* Left: Avatar + Name + Title */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-extrabold text-slate-600 border border-slate-200">
+                          {emp.firstName.substring(0, 1)}
+                          {emp.lastName.substring(0, 1)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-slate-900 font-bold text-xs">
+                              {emp.firstName} {emp.lastName}
+                            </span>
+                            {isLead && (
+                              <span className="inline-flex items-center rounded-md bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 text-[8px] font-extrabold tracking-wide uppercase text-indigo-700">
+                                Team Lead
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                            {emp.jobTitle}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Contact + Location + Status */}
+                      <div className="flex flex-wrap items-center gap-3 sm:text-right sm:justify-end text-xs font-semibold text-slate-500">
+                        {/* Contact details */}
+                        <div className="flex flex-col gap-0.5 text-[10px] min-w-[120px] sm:min-w-0">
+                          <a
+                            href={`mailto:${emp.email}`}
+                            className="flex items-center gap-1 hover:text-blue-600 hover:underline"
+                            title="Send Email"
+                          >
+                            <Mail size={10} className="text-slate-400" />
+                            <span className="truncate max-w-[150px]">{emp.email}</span>
+                          </a>
+                          {emp.phone && (
+                            <div className="flex items-center gap-1 text-slate-450">
+                              <Phone size={10} className="text-slate-400" />
+                              <span>{emp.phone}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Location */}
+                        <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                          <MapPin size={10} className="text-slate-400" />
+                          <span>{emp.workLocation}</span>
+                        </div>
+
+                        {/* Status badge */}
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[8px] font-extrabold uppercase ${
+                            emp.status === "active"
+                              ? "bg-green-50 text-green-700 border border-green-150"
+                              : emp.status === "onboarding"
+                              ? "bg-blue-50 text-blue-700 border border-blue-150"
+                              : emp.status === "terminated"
+                              ? "bg-red-50 text-red-700 border border-red-150"
+                              : "bg-amber-50 text-amber-700 border border-amber-150"
+                          }`}
+                        >
+                          {emp.status}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex justify-end border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setViewingMembersTeam(null)}
+                className="rounded-xl border border-slate-200 px-5 py-2 text-xs font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

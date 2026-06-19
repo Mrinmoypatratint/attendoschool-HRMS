@@ -7,7 +7,7 @@
  * Firestore based on the membership map on the user's profile.
  */
 import { useState, useEffect } from "react";
-import { Search, ChevronDown, Building2 } from "lucide-react";
+import { Search, ChevronDown, Building2, Briefcase } from "lucide-react";
 import { useAuth } from "../../features/auth/context/AuthContext";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
@@ -89,6 +89,18 @@ export function TopHeader() {
 
         {/* Action Items */}
         <div className="flex items-center gap-4">
+          {activeTenant && (
+            <a
+              href={`/careers/${encodeURIComponent(activeTenant.id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-all cursor-pointer"
+            >
+              <Briefcase size={16} className="text-blue-600" />
+              <span className="hidden sm:inline">Careers Portal</span>
+            </a>
+          )}
+
           {/* Tenant Switcher — interactive dropdown only when more than one tenant exists. */}
           {tenantsList.length > 1 ? (
             <div className="relative">
@@ -121,12 +133,19 @@ export function TopHeader() {
                             ? ""
                             : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
                         }`}
-                        style={isSelected ? { backgroundColor: `${tenantPrimaryColor}15`, color: tenantPrimaryColor } : {}}
+                        style={
+                          isSelected
+                            ? {
+                                backgroundColor: `${tenantPrimaryColor}15`,
+                                color: tenantPrimaryColor,
+                              }
+                            : {}
+                        }
                       >
                         <span>{tenant.name}</span>
                         {isSelected && (
-                          <span 
-                            className="h-1.5 w-1.5 rounded-full" 
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
                             style={{ backgroundColor: tenantPrimaryColor }}
                           />
                         )}

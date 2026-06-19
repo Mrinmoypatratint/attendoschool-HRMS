@@ -14,8 +14,9 @@ import { db } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { ErrorState } from "../../../components/ui/ErrorState";
-import { ChevronLeft, Mail, Calendar, Shield, Info, Landmark } from "lucide-react";
-import type { UserProfile } from "@hrms/middleware";
+import { ChevronLeft, Mail, Calendar, Shield, Info, Landmark, Building2 } from "lucide-react";
+import type { UserProfile, Tenant } from "@hrms/middleware";
+import { formatDate } from "../../../lib/utils";
 
 /**
  * Renders the detail view for the user identified by the `id` route param,
@@ -28,6 +29,7 @@ export function UserDetailsPage() {
   const navigate = useNavigate();
 
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [tenantNames, setTenantNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +42,27 @@ export function UserDetailsPage() {
       try {
         const snap = await getDoc(doc(db, "users", id));
         if (snap.exists()) {
-          setUser(snap.data() as UserProfile);
+          const userData = snap.data() as UserProfile;
+          setUser(userData);
+
+          // Fetch tenant names for all associated tenants
+          const tenantIds = Object.keys(userData.tenants || {});
+          const names: Record<string, string> = {};
+          await Promise.all(
+            tenantIds.map(async (tid) => {
+              try {
+                const tenantSnap = await getDoc(doc(db, "tenants", tid));
+                if (tenantSnap.exists()) {
+                  names[tid] = (tenantSnap.data() as Tenant).name;
+                } else {
+                  names[tid] = tid;
+                }
+              } catch {
+                names[tid] = tid;
+              }
+            })
+          );
+          setTenantNames(names);
         } else {
           setError("User not found.");
         }
@@ -136,7 +158,7 @@ export function UserDetailsPage() {
               <div>
                 <div className="font-semibold text-slate-500">Profile Created</div>
                 <div className="text-slate-900 mt-0.5">
-                  {new Date(user.createdAt).toLocaleDateString()}
+                  {formatDate(user.createdAt)}
                 </div>
               </div>
             </div>
@@ -144,17 +166,28 @@ export function UserDetailsPage() {
             <div className="flex items-start gap-2.5">
               <Landmark size={16} className="text-slate-400 mt-0.5" />
               <div>
-                <div className="font-semibold text-slate-500">Active Tenant ID</div>
-                <div className="text-slate-900 mt-0.5">{user.activeTenantId || "None"}</div>
+                <div className="font-semibold text-slate-500">Active Tenant</div>
+                <div className="text-slate-900 mt-0.5">
+                  {user.activeTenantId
+                    ? tenantNames[user.activeTenantId] || user.activeTenantId
+                    : "None"}
+                </div>
               </div>
             </div>
 
             <div className="flex items-start gap-2.5">
-              <Shield size={16} className="text-slate-400 mt-0.5" />
+              <Building2 size={16} className="text-slate-400 mt-0.5" />
               <div>
-                <div className="font-semibold text-slate-500">Associated Tenants count</div>
-                <div className="text-slate-900 mt-0.5">
-                  {Object.keys(user.tenants).length} tenant(s)
+                <div className="font-semibold text-slate-500">Associated Tenants</div>
+                <div className="mt-1 space-y-1">
+                  {Object.keys(user.tenants).map((tid) => (
+                    <div key={tid} className="flex items-center gap-2">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
+                      <span className="text-slate-900 text-sm">
+                        {tenantNames[tid] || tid}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

@@ -101,6 +101,8 @@ function getTransporter(): Transporter {
     port,
     secure: port === 465, // Use SSL/TLS on port 465, STARTTLS on 587
     auth: { user, pass },
+    debug: true,
+    logger: true,
   });
 
   return cachedTransporter;
@@ -341,6 +343,62 @@ export interface PasswordResetParams {
   to: string;
   resetUrl: string;
   recipientName?: string;
+}
+
+/**
+ * Sends an account status change email (activated / deactivated).
+ */
+export interface AccountStatusEmailParams {
+  to: string;
+  organizationName: string;
+  /** Actor name (the admin who toggled the account) */
+  actorName?: string;
+  /** Actor role (e.g. org_admin / hr_manager), as a friendly label if you want */
+  actorRole?: string;
+  status: "active" | "disabled";
+}
+
+/**
+ * Notifies users when their account is activated/deactivated by an admin.
+ */
+export async function sendAccountStatusEmail(p: AccountStatusEmailParams): Promise<void> {
+  const appName = cfg("APP_NAME", APP_NAME);
+  const isActive = p.status === "active";
+
+  const heading = isActive ? "Your account has been activated" : "Your account has been deactivated";
+  const paragraphs: string[] = [];
+
+  const actorLine =
+    p.actorName && p.actorRole
+      ? `This update was made by ${p.actorName} (${p.actorRole}).`
+      : p.actorName
+      ? `This update was made by ${p.actorName}.`
+      : "";
+
+  if (actorLine) paragraphs.push(actorLine);
+
+  paragraphs.push(
+    `Your ${appName} account for ${p.organizationName} is now ${p.status}.`
+  );
+
+  if (isActive) {
+    paragraphs.push("You can sign in again with your existing email and password.");
+  } else {
+    paragraphs.push("You will not be able to sign in until your account is re-activated by an administrator.");
+  }
+
+  const html = renderEmail({
+    greeting: "Hello,",
+    heading,
+    paragraphs,
+    footnote: "If you believe you received this email by mistake, contact your organization support team.",
+  });
+
+  await sendMail({
+    to: p.to,
+    subject: `${heading} — ${p.organizationName}`,
+    html,
+  });
 }
 
 /**

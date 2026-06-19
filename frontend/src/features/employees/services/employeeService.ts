@@ -266,19 +266,39 @@ export const EmployeeService = {
     callerInfo?: { uid: string; email: string }
   ): Promise<void> {
     const ref = doc(db, "employees", employeeId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      throw new Error(`Employee with ID ${employeeId} not found.`);
+    }
+    const oldEmp = snap.data() as Employee;
 
     if (callerInfo) {
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const oldEmp = snap.data() as Employee;
-        await AuditLogService.createAuditLog(oldEmp.tenantId, {
-          userId: callerInfo.uid,
-          userEmail: callerInfo.email,
-          action: "update",
-          resource: "employee",
-          resourceId: employeeId,
-          details: `Updated employee profile for "${oldEmp.firstName} ${oldEmp.lastName}". Changes: ${JSON.stringify(data)}`,
+      await AuditLogService.createAuditLog(oldEmp.tenantId, {
+        userId: callerInfo.uid,
+        userEmail: callerInfo.email,
+        action: "update",
+        resource: "employee",
+        resourceId: employeeId,
+        details: `Updated employee profile for "${oldEmp.firstName} ${oldEmp.lastName}". Changes: ${JSON.stringify(data)}`,
+      });
+    }
+
+    // Sync changes to the User Profile in Firestore
+    const targetUserId = data.userId || oldEmp.userId;
+    if (targetUserId) {
+      const newFirstName = data.firstName !== undefined ? data.firstName : oldEmp.firstName;
+      const newLastName = data.lastName !== undefined ? data.lastName : oldEmp.lastName;
+      const newDisplayName = `${newFirstName} ${newLastName}`.trim();
+      const newEmail = data.email !== undefined ? data.email : oldEmp.email;
+
+      try {
+        await updateDoc(doc(db, "users", targetUserId), {
+          displayName: newDisplayName,
+          email: newEmail.trim().toLowerCase(),
+          updatedAt: Date.now(),
         });
+      } catch (userUpdateErr) {
+        console.error("Failed to sync user profile from employee update:", userUpdateErr);
       }
     }
 

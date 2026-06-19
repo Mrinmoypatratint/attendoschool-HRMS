@@ -2,7 +2,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions } from "../../../lib/firebase";
-import type { Job } from "@hrms/middleware";
+import type { Job, Tenant } from "@hrms/middleware";
 
 export interface ApplicationInput {
   tenantId: string;
@@ -65,5 +65,18 @@ export const CareersService = {
     );
     const res = await fn(input);
     return res.data;
+  },
+
+  async getTenantById(tenantId: string): Promise<Tenant | null> {
+    const snap = await getDoc(doc(db, "tenants", tenantId));
+    if (!snap.exists()) return null;
+    return snap.data() as Tenant;
+  },
+
+  async getAllTenants(): Promise<Tenant[]> {
+    const snap = await getDocs(collection(db, "tenants"));
+    const list: Tenant[] = [];
+    snap.forEach((d) => list.push(d.data() as Tenant));
+    return list;
   },
 };

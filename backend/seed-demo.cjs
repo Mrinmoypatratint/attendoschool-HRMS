@@ -12,6 +12,19 @@
  *
  * SAFETY: this script refuses to run unless it is pointed at the emulators,
  * so it can never touch a real project's Auth or Firestore.
+ *
+ * CLEAN + RE-SEED (dev):
+ * - Stop emulators (Ctrl+C)
+ * - Delete emulator local state (see below) OR run with a fresh volume.
+ * - Start emulators again, then re-run this script.
+ *
+ * Example:
+ *   node backend/seed-demo.cjs
+ *
+ * Notes (optional):
+ * - If you're using Firebase emulator, you can also wipe local emulator data
+ *   by deleting your emulator data directory (commonly in a `.firebase` folder)
+ *   before re-seeding.
  */
 const admin = require("firebase-admin");
 
@@ -44,11 +57,37 @@ const DEMO_USERS = [
 
 async function createAuthUser(u) {
   try {
-    await auth.getUser(u.uid);
+    // 1. Try to find the user by email
+    const existingUser = await auth.getUserByEmail(u.email);
+    if (existingUser.uid === u.uid) {
+      // Correct UID, just update details
+      await auth.updateUser(u.uid, { password: PASSWORD, displayName: u.displayName });
+      console.log(`  ↻ updated auth user ${u.email}`);
+      return;
+    } else {
+      // Wrong UID associated with this email. Delete the old user to free up the email.
+      console.log(`  ⚠ deleting existing auth user ${u.email} (old UID: ${existingUser.uid})`);
+      await auth.deleteUser(existingUser.uid);
+    }
+  } catch (err) {
+    // User does not exist with this email, proceed to UID check
+  }
+
+  // 2. Try to find by UID
+  try {
+    const existingUserById = await auth.getUser(u.uid);
+    // User exists with this UID, update details (including email)
     await auth.updateUser(u.uid, { email: u.email, password: PASSWORD, displayName: u.displayName });
-    console.log(`  ↻ updated auth user ${u.email}`);
-  } catch (e) {
-    await auth.createUser({ uid: u.uid, email: u.email, password: PASSWORD, displayName: u.displayName, emailVerified: true });
+    console.log(`  ↻ updated auth user ${u.email} (by UID)`);
+  } catch (err) {
+    // User does not exist with either email or UID, create fresh
+    await auth.createUser({
+      uid: u.uid,
+      email: u.email,
+      password: PASSWORD,
+      displayName: u.displayName,
+      emailVerified: true,
+    });
     console.log(`  ✓ created auth user ${u.email}`);
   }
 }

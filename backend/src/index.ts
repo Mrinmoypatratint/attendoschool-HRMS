@@ -11,8 +11,11 @@ import {
   sendOfferEmail,
   sendInterviewInviteEmail,
   sendNotificationEmail,
+  sendAccountStatusEmail,
   MAIL_SECRETS,
   getAppUrl,
+  sendMail,
+  renderEmail,
 } from "./mailer";
 
 // Initialize the Firebase Admin SDK to interact with Firestore and Auth
@@ -24,7 +27,14 @@ const db = admin.firestore();
  * Off by default for local development & emulators.
  * Set ENFORCE_APP_CHECK=true in production to require valid App Check tokens.
  */
-const ENFORCE_APP_CHECK = process.env.ENFORCE_APP_CHECK === "true";
+/**
+ * App Check enforcement:
+ * - Default: controlled by ENFORCE_APP_CHECK
+ * - In emulator mode (VITE_USE_EMULATOR=true on the frontend), never enforce App Check,
+ *   otherwise callable requests can fail due to missing/invalid tokens.
+ */
+const ENFORCE_APP_CHECK =
+  process.env.ENFORCE_APP_CHECK === "true" && process.env.FUNCTIONS_EMULATOR !== "true";
 
 /**
  * Best-effort sliding-window rate limiter backed by Firestore.
@@ -690,6 +700,1039 @@ export const requestPasswordReset = functions.runWith({ secrets: MAIL_SECRETS, e
   }
 
   return { success: true };
+});
+
+/**
+ * 2d. HTTPS Callable function: Toggle user account activation within a tenant.
+ * - Authenticates caller
+ * - Ensures caller has users.update (or master access via org_admin/super_admin/hr_manager)
+ * - Updates users/{targetUid}.tenants[tenantId].status
+ * - Disables/enables Firebase Auth user login via Admin SDK
+ * - Sends active/deactivated email to the target user's email including actor name+role
+ * - Creates an in-app notification for the target user
+ */
+export const toggleUserTenantStatus = functions
+  .runWith({ secrets: MAIL_SECRETS, enforceAppCheck: ENFORCE_APP_CHECK })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    const { tenantId, userId, nextStatus } = data || {};
+    if (!tenantId || !userId || (nextStatus !== "active" && nextStatus !== "disabled")) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Missing required fields: tenantId, userId, nextStatus (active|disabled)."
+      );
+    }
+
+    const callerUid = context.auth.uid;
+
+    // Dynamic permission enforcement
+    const callerAccess = await getCallerAccess(callerUid, tenantId);
+    if (!callerAccess.all && !callerAccess.perms.has("users.update")) {
+      throw new functions.https.HttpsError("permission-denied", "You do not have permission to update users.");
+    }
+
+    // Load caller identity for email/audit
+    const callerSnap = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerSnap.exists ? (callerSnap.data() as any) : null;
+    const callerTenantInfo = callerProfile?.tenants?.[tenantId];
+    const actorRole = callerTenantInfo?.role ? String(callerTenantInfo.role) : undefined;
+    const actorName = callerProfile?.displayName ? String(callerProfile.displayName) : undefined;
+
+    // Load target user profile
+    const targetSnap = await db.collection("users").doc(userId).get();
+    if (!targetSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Target user profile not found.");
+    }
+    const targetProfile = targetSnap.data() as any;
+
+    const targetTenantInfo = targetProfile?.tenants?.[tenantId];
+    if (!targetTenantInfo) {
+      throw new functions.https.HttpsError("failed-precondition", "Target user is not part of this tenant.");
+    }
+
+    const targetEmail = targetProfile?.email ? String(targetProfile.email) : undefined;
+    const currentStatus = String(targetTenantInfo.status || "active");
+
+    if (currentStatus === nextStatus) {
+      return { success: true, skipped: true, status: currentStatus };
+    }
+
+    // 1) Update Firestore tenant status
+    const now = FieldValue.serverTimestamp();
+    await db.collection("users").doc(userId).set(
+      {
+        tenants: {
+          [tenantId]: {
+            ...(targetTenantInfo || {}),
+            status: nextStatus,
+          },
+        },
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    // 2) Disable/enable Firebase Auth login
+    try {
+      await admin.auth().updateUser(userId, { disabled: nextStatus === "disabled" });
+    } catch (err) {
+      // If auth update fails, still keep firestore status but surface error
+      throw err;
+    }
+
+    // 3) Send email + in-app notification
+    try {
+      if (targetEmail) {
+        const tenantNameSnap = await db.collection("tenants").doc(tenantId).get();
+        const organizationName = (tenantNameSnap.data()?.name as string) || "your organization";
+
+        await sendAccountStatusEmail({
+          to: targetEmail,
+          organizationName,
+          actorName,
+          actorRole,
+          status: nextStatus,
+        });
+      }
+
+      await createNotification(
+        tenantId,
+        userId,
+        "account.status",
+        nextStatus === "active" ? "Account activated" : "Account deactivated",
+        `Your account status was changed to "${nextStatus}" by ${actorName || "an administrator"}${actorRole ? ` (${actorRole})` : ""}.`,
+        "/users"
+      );
+    } catch (err) {
+      functions.logger.error("[toggleUserTenantStatus] notifications failed", { err });
+    }
+
+    return { success: true, status: nextStatus };
+  });
+
+/**
+ * 2e. HTTPS HTTP endpoint (TEMP for local emulator only):
+ * - Exists to bypass callable/CORS issues in this environment.
+ * - Accepts JSON body: { tenantId, userId, nextStatus }
+ * - Requires Authorization: Bearer <Firebase ID token>
+ */
+export const toggleUserTenantStatusHttp = functions.https.onRequest(async (req, res) => {
+  // Permissive CORS for local dev (must be present on *all* responses including OPTIONS)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Vary", "Origin");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const authHeader = String(req.header("Authorization") || "");
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+
+    if (!token) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
+    const callerUid = decoded.uid;
+
+    const { tenantId, userId, nextStatus } = req.body || {};
+    if (!tenantId || !userId || (nextStatus !== "active" && nextStatus !== "disabled")) {
+      res.status(400).json({ error: "Missing required fields: tenantId, userId, nextStatus (active|disabled)." });
+      return;
+    }
+
+    const callerAccess = await getCallerAccess(callerUid, String(tenantId));
+    if (!callerAccess.all && !callerAccess.perms.has("users.update")) {
+      res.status(403).json({ error: "Permission denied" });
+      return;
+    }
+
+    // Load caller identity for email/audit
+    const callerSnap = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerSnap.exists ? (callerSnap.data() as any) : null;
+    const callerTenantInfo = callerProfile?.tenants?.[tenantId];
+    const actorRole = callerTenantInfo?.role ? String(callerTenantInfo.role) : undefined;
+    const actorName = callerProfile?.displayName ? String(callerProfile.displayName) : undefined;
+
+    // Load target user profile
+    const targetSnap = await db.collection("users").doc(String(userId)).get();
+    if (!targetSnap.exists) {
+      res.status(404).json({ error: "Target user profile not found" });
+      return;
+    }
+    const targetProfile = targetSnap.data() as any;
+
+    const targetTenantInfo = targetProfile?.tenants?.[tenantId];
+    if (!targetTenantInfo) {
+      res.status(400).json({ error: "Target user is not part of this tenant." });
+      return;
+    }
+
+    const targetEmail = targetProfile?.email ? String(targetProfile.email) : undefined;
+    const currentStatus = String(targetTenantInfo.status || "active");
+
+    if (currentStatus === nextStatus) {
+      res.status(200).json({ success: true, skipped: true, status: currentStatus });
+      return;
+    }
+
+    const now = FieldValue.serverTimestamp();
+    await db.collection("users").doc(String(userId)).set(
+      {
+        tenants: {
+          [tenantId]: {
+            ...(targetTenantInfo || {}),
+            status: nextStatus,
+          },
+        },
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    await admin.auth().updateUser(String(userId), { disabled: nextStatus === "disabled" });
+
+    try {
+      if (targetEmail) {
+        const tenantNameSnap = await db.collection("tenants").doc(tenantId).get();
+        const organizationName = (tenantNameSnap.data()?.name as string) || "your organization";
+
+        await sendAccountStatusEmail({
+          to: targetEmail,
+          organizationName,
+          actorName,
+          actorRole,
+          status: nextStatus,
+        });
+      }
+
+      await createNotification(
+        tenantId,
+        String(userId),
+        "account.status",
+        nextStatus === "active" ? "Account activated" : "Account deactivated",
+        `Your account status was changed to "${nextStatus}" by ${actorName || "an administrator"}${actorRole ? ` (${actorRole})` : ""}.`,
+        "/users"
+      );
+    } catch (err) {
+      functions.logger.error("[toggleUserTenantStatusHttp] notifications failed", { err });
+    }
+
+    res.status(200).json({ success: true, status: nextStatus });
+  } catch (err: any) {
+    functions.logger.error("[toggleUserTenantStatusHttp] failed", { err });
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+/**
+ * HTTPS Callable function: Update user profile details (displayName and email)
+ * and update Firebase Auth as well as matching employee profiles.
+ */
+export const updateUserProfile = functions
+  .runWith({ secrets: MAIL_SECRETS, enforceAppCheck: ENFORCE_APP_CHECK })
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "User must be authenticated.");
+    }
+
+    const { tenantId, userId, displayName, email } = data || {};
+    if (!tenantId || !userId || !displayName || !email) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Missing required fields: tenantId, userId, displayName, email."
+      );
+    }
+
+    const callerUid = context.auth.uid;
+
+    // Dynamic permission enforcement
+    const callerAccess = await getCallerAccess(callerUid, tenantId);
+    if (!callerAccess.all && !callerAccess.perms.has("users.update")) {
+      throw new functions.https.HttpsError("permission-denied", "You do not have permission to update users.");
+    }
+
+    // Load caller identity
+    const callerSnap = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerSnap.exists ? (callerSnap.data() as any) : null;
+    const actorName = callerProfile?.displayName ? String(callerProfile.displayName) : "Admin";
+
+    // Load target user profile
+    const targetSnap = await db.collection("users").doc(userId).get();
+    if (!targetSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Target user profile not found.");
+    }
+    const targetProfile = targetSnap.data() as any;
+
+    const targetTenantInfo = targetProfile?.tenants?.[tenantId];
+    if (!targetTenantInfo) {
+      throw new functions.https.HttpsError("failed-precondition", "Target user is not part of this tenant.");
+    }
+
+    const now = FieldValue.serverTimestamp();
+
+    // 1) Update Firestore user profile
+    await db.collection("users").doc(userId).set(
+      {
+        displayName: displayName.trim(),
+        email: email.trim().toLowerCase(),
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    // 2) Update Firebase Auth
+    try {
+      await admin.auth().updateUser(userId, {
+        displayName: displayName.trim(),
+        email: email.trim().toLowerCase(),
+      });
+    } catch (err) {
+      functions.logger.error("[updateUserProfile] Auth update failed", { err });
+      throw new functions.https.HttpsError("internal", `Firebase Auth update failed: ${err}`);
+    }
+
+    // 3) Update any linked employee records
+    try {
+      const employeeQuery = await db.collection("employees")
+        .where("tenantId", "==", tenantId)
+        .where("userId", "==", userId)
+        .get();
+
+      if (!employeeQuery.empty) {
+        const nameParts = displayName.trim().split(/\s+/);
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ");
+
+        const batch = db.batch();
+        employeeQuery.forEach((docSnap) => {
+          batch.update(docSnap.ref, {
+            email: email.trim().toLowerCase(),
+            firstName,
+            lastName,
+            updatedAt: Date.now(),
+          });
+        });
+        await batch.commit();
+      }
+    } catch (err) {
+      functions.logger.error("[updateUserProfile] Employee updates failed", { err });
+    }
+
+    // 4) Create Notification
+    try {
+      await createNotification(
+        tenantId,
+        userId,
+        "profile.update",
+        "Profile updated by Admin",
+        `Your profile details were updated by ${actorName}.`,
+        "/users"
+      );
+    } catch (err) {
+      functions.logger.error("[updateUserProfile] notifications failed", { err });
+    }
+
+    // 5) If email changed, generate a password reset link and send an email
+    const emailChanged = targetProfile?.email?.trim().toLowerCase() !== email.trim().toLowerCase();
+    if (emailChanged) {
+      const appUrl = getAppUrl();
+      let setPasswordUrl: string | null = null;
+      try {
+        const actionLink = await admin.auth().generatePasswordResetLink(email.trim().toLowerCase(), {
+          url: `${appUrl}/login`,
+          handleCodeInApp: false,
+        });
+        const oobCode = new URL(actionLink).searchParams.get("oobCode") || "";
+        setPasswordUrl = oobCode
+          ? `${appUrl}/reset-password?oobCode=${encodeURIComponent(oobCode)}`
+          : actionLink;
+      } catch (err) {
+        functions.logger.error("[updateUserProfile] failed to generate reset link", {
+          email,
+          error: err,
+        });
+      }
+
+      if (setPasswordUrl) {
+        try {
+          await sendPasswordResetEmail({
+            to: email.trim().toLowerCase(),
+            resetUrl: setPasswordUrl,
+            recipientName: displayName.trim(),
+          });
+        } catch (mailErr) {
+          functions.logger.error("[updateUserProfile] Failed to send password reset email", {
+            email,
+            error: mailErr,
+          });
+        }
+      }
+    }
+
+    return { success: true };
+  });
+
+/**
+ * HTTPS HTTP endpoint (for local emulator fallback):
+ * - Accepts JSON body: { tenantId, userId, displayName, email }
+ * - Requires Authorization: Bearer <Firebase ID token>
+ */
+export const updateUserProfileHttp = functions.https.onRequest(async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Vary", "Origin");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const authHeader = String(req.header("Authorization") || "");
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+
+    if (!token) {
+      res.status(401).json({ error: "Unauthenticated" });
+      return;
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
+    const callerUid = decoded.uid;
+
+    const { tenantId, userId, displayName, email } = req.body || {};
+    if (!tenantId || !userId || !displayName || !email) {
+      res.status(400).json({ error: "Missing required fields: tenantId, userId, displayName, email." });
+      return;
+    }
+
+    const callerAccess = await getCallerAccess(callerUid, String(tenantId));
+    if (!callerAccess.all && !callerAccess.perms.has("users.update")) {
+      res.status(403).json({ error: "Permission denied" });
+      return;
+    }
+
+    const callerSnap = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerSnap.exists ? (callerSnap.data() as any) : null;
+    const actorName = callerProfile?.displayName ? String(callerProfile.displayName) : "Admin";
+
+    const targetSnap = await db.collection("users").doc(String(userId)).get();
+    if (!targetSnap.exists) {
+      res.status(404).json({ error: "Target user profile not found" });
+      return;
+    }
+    const targetProfile = targetSnap.data() as any;
+
+    const targetTenantInfo = targetProfile?.tenants?.[tenantId];
+    if (!targetTenantInfo) {
+      res.status(400).json({ error: "Target user is not part of this tenant." });
+      return;
+    }
+
+    const now = FieldValue.serverTimestamp();
+
+    await db.collection("users").doc(String(userId)).set(
+      {
+        displayName: displayName.trim(),
+        email: email.trim().toLowerCase(),
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    await admin.auth().updateUser(String(userId), {
+      displayName: displayName.trim(),
+      email: email.trim().toLowerCase(),
+    });
+
+    try {
+      const employeeQuery = await db.collection("employees")
+        .where("tenantId", "==", tenantId)
+        .where("userId", "==", userId)
+        .get();
+
+      if (!employeeQuery.empty) {
+        const nameParts = displayName.trim().split(/\s+/);
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ");
+
+        const batch = db.batch();
+        employeeQuery.forEach((docSnap) => {
+          batch.update(docSnap.ref, {
+            email: email.trim().toLowerCase(),
+            firstName,
+            lastName,
+            updatedAt: Date.now(),
+          });
+        });
+        await batch.commit();
+      }
+    } catch (err) {
+      functions.logger.error("[updateUserProfileHttp] Employee updates failed", { err });
+    }
+
+    try {
+      await createNotification(
+        tenantId,
+        String(userId),
+        "profile.update",
+        "Profile updated by Admin",
+        `Your profile details were updated by ${actorName}.`,
+        "/users"
+      );
+    } catch (err) {
+      functions.logger.error("[updateUserProfileHttp] notifications failed", { err });
+    }
+
+    // If email changed, generate a password reset link and send an email
+    const emailChanged = targetProfile?.email?.trim().toLowerCase() !== email.trim().toLowerCase();
+    if (emailChanged) {
+      const appUrl = getAppUrl();
+      let setPasswordUrl: string | null = null;
+      try {
+        const actionLink = await admin.auth().generatePasswordResetLink(email.trim().toLowerCase(), {
+          url: `${appUrl}/login`,
+          handleCodeInApp: false,
+        });
+        const oobCode = new URL(actionLink).searchParams.get("oobCode") || "";
+        setPasswordUrl = oobCode
+          ? `${appUrl}/reset-password?oobCode=${encodeURIComponent(oobCode)}`
+          : actionLink;
+      } catch (err) {
+        functions.logger.error("[updateUserProfileHttp] failed to generate reset link", {
+          email,
+          error: err,
+        });
+      }
+
+      if (setPasswordUrl) {
+        try {
+          await sendPasswordResetEmail({
+            to: email.trim().toLowerCase(),
+            resetUrl: setPasswordUrl,
+            recipientName: displayName.trim(),
+          });
+        } catch (mailErr) {
+          functions.logger.error("[updateUserProfileHttp] Failed to send password reset email", {
+            email,
+            error: mailErr,
+          });
+        }
+      }
+    }
+
+    res.status(200).json({ success: true });
+  } catch (err: any) {
+    functions.logger.error("[updateUserProfileHttp] failed", { err });
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+/**
+ * HTTPS Callable function: Report an unauthorized login attempt where the user
+ * selects an organization they do not belong to. Emails the attempted organization
+ * owners and the user, and creates in-app notifications.
+ */
+export const reportWrongOrganizationAttempt = functions
+  .runWith({ secrets: MAIL_SECRETS, enforceAppCheck: ENFORCE_APP_CHECK })
+  .https.onCall(async (data) => {
+    const { email, attemptedTenantId } = data || {};
+    if (!email || !attemptedTenantId) {
+      throw new functions.https.HttpsError("invalid-argument", "Email and attemptedTenantId are required.");
+    }
+
+    // 1. Get the attempted tenant name
+    const tenantSnap = await db.collection("tenants").doc(attemptedTenantId).get();
+    if (!tenantSnap.exists) {
+      return { success: false, error: "Tenant not found" };
+    }
+    const tenantName = tenantSnap.data()?.name || "your organization";
+
+    // 2. Query target user details if they exist in the system
+    const usersSnap = await db.collection("users").where("email", "==", email).limit(1).get();
+    const targetName = !usersSnap.empty ? (usersSnap.docs[0].data()?.displayName || "Unknown") : "Unknown User";
+
+    // 3. Find administrators (owners) of the attempted organization
+    const adminsSnap = await db
+      .collection("users")
+      .where(`tenants.${attemptedTenantId}.role`, "in", ["org_admin", "super_admin"])
+      .get();
+
+    const adminEmails: string[] = [];
+    const adminIds: string[] = [];
+    adminsSnap.forEach((docSnap) => {
+      const d = docSnap.data();
+      if (d.email) adminEmails.push(d.email);
+      adminIds.push(docSnap.id);
+    });
+
+    const systemOwnerEmail = process.env.SUPPORT_EMAIL || "support@hrms-ats.app";
+    if (adminEmails.length === 0) {
+      adminEmails.push(systemOwnerEmail);
+    }
+
+    // 4. Send emails
+    // Mail to owner(s)
+    try {
+      await sendMail({
+        to: adminEmails,
+        subject: `Security Alert: Unauthorized Organization Access Attempt`,
+        html: renderEmail({
+          heading: "Unauthorized Access Attempt",
+          paragraphs: [
+            `An unauthorized attempt to access your organization (${tenantName}) was detected.`,
+            `User Email: ${email}`,
+            `User Name: ${targetName}`,
+            `Time of attempt: ${new Date().toUTCString()}`,
+            "The user tried to log in under your organization name but does not have access to it."
+          ],
+          footnote: "This is an automated security alert."
+        })
+      });
+    } catch (err) {
+      functions.logger.error("[reportWrongOrganizationAttempt] failed to mail admins", err);
+    }
+
+    // Mail to the user (if registered)
+    if (!usersSnap.empty) {
+      try {
+        await sendMail({
+          to: email,
+          subject: `Security Alert: Unauthorized Access Attempt`,
+          html: renderEmail({
+            heading: "Access Attempt Denied",
+            paragraphs: [
+              `Hello ${targetName},`,
+              `We detected an attempt to sign in to the organization "${tenantName}" using your email address.`,
+              "You do not have access permissions for this organization, and the attempt was blocked.",
+              "If this was not you, someone may be trying to access organizations using your email.",
+              `Time of attempt: ${new Date().toUTCString()}`
+            ],
+            footnote: "This is an automated security alert."
+          })
+        });
+      } catch (err) {
+        functions.logger.error("[reportWrongOrganizationAttempt] failed to mail user", err);
+      }
+    }
+
+    // 5. Create in-app notifications for the attempted organization's admins
+    if (adminIds.length > 0) {
+      for (const adminId of adminIds) {
+        try {
+          await createNotification(
+            attemptedTenantId,
+            adminId,
+            "security.unauthorized_org",
+            "Unauthorized Org Login Attempt",
+            `An unauthorized login attempt was made by ${email} to access your organization.`,
+            "/users"
+          );
+        } catch (err) {
+          functions.logger.error("[reportWrongOrganizationAttempt] failed to create notification", err);
+        }
+      }
+    }
+
+    return { success: true };
+  });
+
+/**
+ * HTTPS HTTP endpoint (for local emulator fallback):
+ * - Accepts JSON body: { email, attemptedTenantId }
+ */
+export const reportWrongOrganizationAttemptHttp = functions.https.onRequest(async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const { email, attemptedTenantId } = req.body || {};
+    if (!email || !attemptedTenantId) {
+      res.status(400).json({ error: "Email and attemptedTenantId are required." });
+      return;
+    }
+
+    const tenantSnap = await db.collection("tenants").doc(String(attemptedTenantId)).get();
+    if (!tenantSnap.exists) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+    const tenantName = tenantSnap.data()?.name || "your organization";
+
+    const usersSnap = await db.collection("users").where("email", "==", email).limit(1).get();
+    const targetName = !usersSnap.empty ? (usersSnap.docs[0].data()?.displayName || "Unknown") : "Unknown User";
+
+    const adminsSnap = await db
+      .collection("users")
+      .where(`tenants.${attemptedTenantId}.role`, "in", ["org_admin", "super_admin"])
+      .get();
+
+    const adminEmails: string[] = [];
+    const adminIds: string[] = [];
+    adminsSnap.forEach((docSnap) => {
+      const d = docSnap.data();
+      if (d.email) adminEmails.push(d.email);
+      adminIds.push(docSnap.id);
+    });
+
+    const systemOwnerEmail = process.env.SUPPORT_EMAIL || "support@hrms-ats.app";
+    if (adminEmails.length === 0) {
+      adminEmails.push(systemOwnerEmail);
+    }
+
+    try {
+      await sendMail({
+        to: adminEmails,
+        subject: `Security Alert: Unauthorized Organization Access Attempt`,
+        html: renderEmail({
+          heading: "Unauthorized Access Attempt",
+          paragraphs: [
+            `An unauthorized attempt to access your organization (${tenantName}) was detected.`,
+            `User Email: ${email}`,
+            `User Name: ${targetName}`,
+            `Time of attempt: ${new Date().toUTCString()}`,
+            "The user tried to log in under your organization name but does not have access to it."
+          ],
+          footnote: "This is an automated security alert."
+        })
+      });
+    } catch (err) {
+      functions.logger.error("[reportWrongOrganizationAttemptHttp] failed to mail admins", err);
+    }
+
+    if (!usersSnap.empty) {
+      try {
+        await sendMail({
+          to: email,
+          subject: `Security Alert: Unauthorized Access Attempt`,
+          html: renderEmail({
+            heading: "Access Attempt Denied",
+            paragraphs: [
+              `Hello ${targetName},`,
+              `We detected an attempt to sign in to the organization "${tenantName}" using your email address.`,
+              "You do not have access permissions for this organization, and the attempt was blocked.",
+              "If this was not you, someone may be trying to access organizations using your email.",
+              `Time of attempt: ${new Date().toUTCString()}`
+            ],
+            footnote: "This is an automated security alert."
+          })
+        });
+      } catch (err) {
+        functions.logger.error("[reportWrongOrganizationAttemptHttp] failed to mail user", err);
+      }
+    }
+
+    if (adminIds.length > 0) {
+      for (const adminId of adminIds) {
+        try {
+          await createNotification(
+            String(attemptedTenantId),
+            adminId,
+            "security.unauthorized_org",
+            "Unauthorized Org Login Attempt",
+            `An unauthorized login attempt was made by ${email} to access your organization.`,
+            "/users"
+          );
+        } catch (err) {
+          functions.logger.error("[reportWrongOrganizationAttemptHttp] failed to create notification", err);
+        }
+      }
+    }
+
+    res.status(200).json({ success: true });
+  } catch (err: any) {
+    functions.logger.error("[reportWrongOrganizationAttemptHttp] failed", { err });
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+
+
+/**
+ * 2f. HTTPS Callable function: Report a failed login attempt.
+ * If the email does not exist (unauthenticated), it emails the global owner.
+ * If the email exists (unauthorized), it emails the user and the tenant owner(s)/admin(s).
+ */
+export const reportFailedLogin = functions.runWith({ secrets: MAIL_SECRETS, enforceAppCheck: ENFORCE_APP_CHECK }).https.onCall(async (data) => {
+  const email = String(data?.email || "").trim().toLowerCase();
+  const attemptedTenantId = data?.attemptedTenantId ? String(data.attemptedTenantId).trim() : undefined;
+  if (!email) {
+    throw new functions.https.HttpsError("invalid-argument", "Email is required.");
+  }
+
+  // Rate limit to prevent spam (max 10 requests per email per hour)
+  await enforceRateLimit(`login_fail_${email}`, 10, 60 * 60 * 1000);
+
+  // 1. Check if user exists in Firestore
+  const usersSnap = await db.collection("users").where("email", "==", email).limit(1).get();
+  const systemOwnerEmail = process.env.SUPPORT_EMAIL || "support@hrms-ats.app";
+
+  if (usersSnap.empty) {
+    // Unauthenticated
+    try {
+      await sendMail({
+        to: systemOwnerEmail,
+        subject: `Failed Login Attempt: Unregistered Email`,
+        html: renderEmail({
+          heading: "Unregistered Login Attempt",
+          paragraphs: [
+            `A login attempt was made using an unregistered email address: ${email}.`,
+            "This email is not associated with any account in the system.",
+            `Time of attempt: ${new Date().toUTCString()}`
+          ],
+          footnote: "This is an automated security alert."
+        })
+      });
+    } catch (err) {
+      functions.logger.error("[reportFailedLogin] failed to mail owner", err);
+    }
+    return { success: true, type: "unauthenticated" };
+  }
+
+  // Unauthorized
+  const userDoc = usersSnap.docs[0];
+  const userProfile = userDoc.data();
+  const activeTenantId = attemptedTenantId || userProfile.activeTenantId || Object.keys(userProfile.tenants || {})[0];
+
+  const adminEmails: string[] = [];
+  const adminIds: string[] = [];
+  if (activeTenantId) {
+    const adminsSnap = await db
+      .collection("users")
+      .where(`tenants.${activeTenantId}.role`, "in", ["org_admin", "super_admin"])
+      .get();
+    adminsSnap.forEach((doc) => {
+      const data = doc.data();
+      if (data.email) adminEmails.push(data.email);
+      adminIds.push(doc.id);
+    });
+  }
+
+  if (adminEmails.length === 0) {
+    adminEmails.push(systemOwnerEmail);
+  }
+
+  try {
+    // Mail to user
+    await sendMail({
+      to: email,
+      subject: "Security Alert: Failed Login Attempt",
+      html: renderEmail({
+        heading: "Failed Login Attempt",
+        paragraphs: [
+          `Hello ${userProfile.displayName || "User"},`,
+          "We detected a failed login attempt on your account.",
+          "If this was you, please verify your credentials and try again.",
+          "If this was not you, someone else may be trying to access your account. Please notify your organization administrator immediately.",
+          `Time of attempt: ${new Date().toUTCString()}`
+        ],
+        footnote: "This is an automated security alert to protect your account."
+      })
+    });
+
+    // Mail to owner(s)
+    await sendMail({
+      to: adminEmails,
+      subject: "Security Alert: Unauthorized Login Attempt",
+      html: renderEmail({
+        heading: "Unauthorized Login Attempt",
+        paragraphs: [
+          "An unauthorized login attempt was detected for a user in your organization.",
+          `User Email: ${email}`,
+          `User Name: ${userProfile.displayName || "Unknown"}`,
+          `Time of attempt: ${new Date().toUTCString()}`,
+          "Please verify if this account is secure and take action if necessary."
+        ],
+        footnote: "This is an automated security alert."
+      })
+    });
+
+    // Create in-app notifications for resolved admins
+    if (activeTenantId && adminIds.length > 0) {
+      for (const adminId of adminIds) {
+        try {
+          await createNotification(
+            activeTenantId,
+            adminId,
+            "security.alert",
+            "Unauthorized Login Attempt",
+            `An unauthorized login attempt was detected for user ${userProfile.displayName || email} (${email}).`,
+            "/users"
+          );
+        } catch (notifErr) {
+          functions.logger.error(`[reportFailedLogin] failed to create notification for admin ${adminId}`, notifErr);
+        }
+      }
+    }
+  } catch (err) {
+    functions.logger.error("[reportFailedLogin] failed to send security emails", err);
+  }
+
+  return { success: true, type: "unauthorized" };
+});
+
+/**
+ * 2g. HTTPS HTTP endpoint: Report a failed login attempt (for emulator and direct calls).
+ */
+export const reportFailedLoginHttp = functions.https.onRequest(async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  try {
+    const { email, attemptedTenantId } = req.body || {};
+    if (!email) {
+      res.status(400).json({ error: "Email is required." });
+      return;
+    }
+
+    const trimmedEmail = String(email).trim().toLowerCase();
+
+    // 1. Check if user exists in Firestore
+    const usersSnap = await db.collection("users").where("email", "==", trimmedEmail).limit(1).get();
+    const systemOwnerEmail = process.env.SUPPORT_EMAIL || "support@hrms-ats.app";
+
+    if (usersSnap.empty) {
+      // Unauthenticated
+      await sendMail({
+        to: systemOwnerEmail,
+        subject: `Failed Login Attempt: Unregistered Email`,
+        html: renderEmail({
+          heading: "Unregistered Login Attempt",
+          paragraphs: [
+            `A login attempt was made using an unregistered email address: ${trimmedEmail}.`,
+            "This email is not associated with any account in the system.",
+            `Time of attempt: ${new Date().toUTCString()}`
+          ],
+          footnote: "This is an automated security alert."
+        })
+      });
+      res.status(200).json({ success: true, type: "unauthenticated" });
+      return;
+    }
+
+    // Unauthorized
+    const userDoc = usersSnap.docs[0];
+    const userProfile = userDoc.data();
+    const activeTenantId = attemptedTenantId || userProfile.activeTenantId || Object.keys(userProfile.tenants || {})[0];
+
+    const adminEmails: string[] = [];
+    const adminIds: string[] = [];
+    if (activeTenantId) {
+      const adminsSnap = await db
+        .collection("users")
+        .where(`tenants.${activeTenantId}.role`, "in", ["org_admin", "super_admin"])
+        .get();
+      adminsSnap.forEach((doc) => {
+        const data = doc.data();
+        if (data.email) adminEmails.push(data.email);
+        adminIds.push(doc.id);
+      });
+    }
+
+    if (adminEmails.length === 0) {
+      adminEmails.push(systemOwnerEmail);
+    }
+
+    // Mail to user
+    await sendMail({
+      to: trimmedEmail,
+      subject: "Security Alert: Failed Login Attempt",
+      html: renderEmail({
+        heading: "Failed Login Attempt",
+        paragraphs: [
+          `Hello ${userProfile.displayName || "User"},`,
+          "We detected a failed login attempt on your account.",
+          "If this was you, please verify your credentials and try again.",
+          "If this was not you, someone else may be trying to access your account. Please notify your organization administrator immediately.",
+          `Time of attempt: ${new Date().toUTCString()}`
+        ],
+        footnote: "This is an automated security alert to protect your account."
+      })
+    });
+
+    // Mail to owner(s)
+    await sendMail({
+      to: adminEmails,
+      subject: "Security Alert: Unauthorized Login Attempt",
+      html: renderEmail({
+        heading: "Unauthorized Login Attempt",
+        paragraphs: [
+          "An unauthorized login attempt was detected for a user in your organization.",
+          `User Email: ${trimmedEmail}`,
+          `User Name: ${userProfile.displayName || "Unknown"}`,
+          `Time of attempt: ${new Date().toUTCString()}`,
+          "Please verify if this account is secure and take action if necessary."
+        ],
+        footnote: "This is an automated security alert."
+      })
+    });
+
+    // Create in-app notifications for resolved admins
+    if (activeTenantId && adminIds.length > 0) {
+      for (const adminId of adminIds) {
+        try {
+          await createNotification(
+            activeTenantId,
+            adminId,
+            "security.alert",
+            "Unauthorized Login Attempt",
+            `An unauthorized login attempt was detected for user ${userProfile.displayName || trimmedEmail} (${trimmedEmail}).`,
+            "/users"
+          );
+        } catch (notifErr) {
+          functions.logger.error(`[reportFailedLoginHttp] failed to create notification for admin ${adminId}`, notifErr);
+        }
+      }
+    }
+
+    res.status(200).json({ success: true, type: "unauthorized" });
+  } catch (err: any) {
+    functions.logger.error("[reportFailedLoginHttp] failed", err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 /**

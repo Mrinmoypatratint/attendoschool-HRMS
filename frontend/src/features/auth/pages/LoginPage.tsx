@@ -17,7 +17,7 @@
  * Forms are validated with react-hook-form + Zod.
  */
 import { getFriendlyErrorMessage } from "../../../lib/errors";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -28,8 +28,9 @@ import {
   signInWithPopup,
   signOut,
 } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "../../../lib/firebase";
+import { doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { auth, db, googleProvider, functions } from "../../../lib/firebase";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -83,6 +84,25 @@ export function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const navigate = useNavigate();
 
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+
+  useEffect(() => {
+    const fetchTenants = async () => {
+      try {
+        const snap = await getDocs(collection(db, "tenants"));
+        const list: any[] = [];
+        snap.forEach((doc) => {
+          list.push(doc.data());
+        });
+        setTenants(list);
+      } catch (err) {
+        console.error("Failed to load organizations:", err);
+      }
+    };
+    fetchTenants();
+  }, []);
+
   const loginForm = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
@@ -101,15 +121,90 @@ export function LoginPage() {
     },
   });
 
+  const reportLoginFailure = (email: string, attemptedTenantId?: string) => {
+    if (!email) return;
+    try {
+      if (import.meta.env.VITE_USE_EMULATOR === "true") {
+        const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || "demo-mock-project";
+        fetch(`http://127.0.0.1:5001/${projectId}/us-central1/reportFailedLoginHttp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, attemptedTenantId }),
+        }).catch((fetchErr) => console.error("Failed to report login failure via HTTP:", fetchErr));
+      } else {
+        const reportFn = httpsCallable<{ email: string; attemptedTenantId?: string | undefined }, { success: boolean; type: string }>(functions, "reportFailedLogin");
+        reportFn({ email, attemptedTenantId }).catch((callErr) => console.error("Failed to report login failure via Callable:", callErr));
+      }
+    } catch (reportErr) {
+      console.error("Failed to send login failure report:", reportErr);
+    }
+  };
+
+  const reportWrongOrgAttempt = (email: string, attemptedTenantId: string) => {
+    if (!email || !attemptedTenantId) return;
+    try {
+      if (import.meta.env.VITE_USE_EMULATOR === "true") {
+        const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || "demo-mock-project";
+        fetch(`http://127.0.0.1:5001/${projectId}/us-central1/reportWrongOrganizationAttemptHttp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, attemptedTenantId }),
+        }).catch((fetchErr) => console.error("Failed to report wrong org attempt via HTTP:", fetchErr));
+      } else {
+        const reportFn = httpsCallable<{ email: string; attemptedTenantId: string }, { success: boolean }>(
+          functions,
+          "reportWrongOrganizationAttempt"
+        );
+        reportFn({ email, attemptedTenantId }).catch((callErr) =>
+          console.error("Failed to report wrong org attempt via Callable:", callErr)
+        );
+      }
+    } catch (reportErr) {
+      console.error("Failed to send wrong org attempt report:", reportErr);
+    }
+  };
+
   const onLoginSubmit = async (data: LoginForm) => {
     setError(null);
     setLoading(true);
+    if (!selectedTenantId) {
+      setError("Please choose your organization name.");
+      setLoading(false);
+      return;
+    }
     try {
-      await signInWithEmailAndPassword(auth, data.email, data.password);
+      const userCredential = await signInWithEmailAndPassword(auth, data.email, data.password);
+      const uid = userCredential.user.uid;
+
+      // Fetch user profile to verify tenant membership
+      const userSnap = await getDoc(doc(db, "users", uid));
+      if (!userSnap.exists()) {
+        await signOut(auth);
+        setError("User profile not found. Please contact support.");
+        reportLoginFailure(data.email, selectedTenantId);
+        return;
+      }
+
+      const profile = userSnap.data();
+      const userTenant = profile?.tenants?.[selectedTenantId];
+
+      if (!userTenant || userTenant.status !== "active") {
+        await signOut(auth);
+        setError("You do not have access to the selected organization.");
+        reportWrongOrgAttempt(data.email, selectedTenantId);
+        return;
+      }
+
+      // Automatically set their active tenant ID on successful login
+      if (profile.activeTenantId !== selectedTenantId) {
+        await setDoc(doc(db, "users", uid), { activeTenantId: selectedTenantId }, { merge: true });
+      }
+
       navigate("/dashboard");
     } catch (err: any) {
       console.error(err);
       setError(getFriendlyErrorMessage(err, "Failed to log in. Please check your credentials."));
+      reportLoginFailure(data.email, selectedTenantId);
     } finally {
       setLoading(false);
     }
@@ -169,6 +264,10 @@ export function LoginPage() {
   // signed out + error.
   const onGoogleSignIn = async () => {
     setError(null);
+    if (!selectedTenantId) {
+      setError("Please choose your organization name before signing in.");
+      return;
+    }
     setGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
@@ -177,24 +276,31 @@ export function LoginPage() {
       const userSnap = await getDoc(doc(db, "users", uid));
 
       if (!userSnap.exists()) {
+        const userEmail = result.user.email || "";
         await signOut(auth);
         setError(
-          "Your Google account is not registered with this organization. Please contact your admin to get access."
+          "Your Google account is not registered. Please contact your admin to get access."
         );
+        reportLoginFailure(userEmail, selectedTenantId);
         return;
       }
 
-      const profile = userSnap.data() as { tenants?: Record<string, { status?: string }> };
-      const hasActiveTenant = Object.values(profile.tenants || {}).some(
-        (t) => t?.status === "active"
-      );
+      const profile = userSnap.data();
+      const userTenant = profile?.tenants?.[selectedTenantId];
 
-      if (!hasActiveTenant) {
+      if (!userTenant || userTenant.status !== "active") {
+        const userEmail = result.user.email || "";
         await signOut(auth);
         setError(
-          "Your account does not have active access to any organization. Please contact your admin."
+          "You do not have access to the selected organization."
         );
+        reportWrongOrgAttempt(userEmail, selectedTenantId);
         return;
+      }
+
+      // Automatically set active tenant ID
+      if (profile.activeTenantId !== selectedTenantId) {
+        await setDoc(doc(db, "users", uid), { activeTenantId: selectedTenantId }, { merge: true });
       }
 
       navigate("/dashboard");
@@ -216,6 +322,7 @@ export function LoginPage() {
     setError(null);
     loginFormSetValue("email", email, { shouldValidate: true });
     loginFormSetValue("password", DEMO_PASSWORD, { shouldValidate: true });
+    setSelectedTenantId("tenant_demo");
   };
 
   return (
@@ -265,6 +372,25 @@ export function LoginPage() {
         {activeTab === "login" ? (
           <>
             <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="mt-6 space-y-4">
+              <div>
+                <label htmlFor="org-select" className="text-sm font-semibold text-slate-700">
+                  Organization Name
+                </label>
+                <select
+                  id="org-select"
+                  value={selectedTenantId}
+                  onChange={(e) => setSelectedTenantId(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 font-semibold text-slate-700"
+                >
+                  <option value="">Select your organization...</option>
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label htmlFor="email-login" className="text-sm font-semibold text-slate-700">
                   Email Address

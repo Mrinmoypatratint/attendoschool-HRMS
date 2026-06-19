@@ -3,11 +3,13 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { CareersService, type ApplicationInput } from "../services/careersService";
 import { titleCase } from "../components/recruitmentUi";
-import type { Job } from "@hrms/middleware";
+import type { Job, Tenant } from "@hrms/middleware";
 import { Briefcase, MapPin, Clock, Upload, ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 
 export function CareersPage() {
   const { tenantId = "" } = useParams();
+  const [resolvedTenantId, setResolvedTenantId] = useState<string>("");
+  const [activeTenant, setActiveTenant] = useState<Tenant | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +20,32 @@ export function CareersPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await CareersService.listPublishedJobs(tenantId);
+      // 1. Resolve actual tenant ID (e.g. tenant_demo) if the parameter is a company name
+      let resolvedId = tenantId;
+      let tenantDoc = await CareersService.getTenantById(tenantId);
+
+      if (tenantDoc) {
+        resolvedId = tenantId;
+        setActiveTenant(tenantDoc);
+      } else {
+        // Find tenant by matching normalized name/slug
+        const tenants = await CareersService.getAllTenants();
+        const normalizedParam = decodeURIComponent(tenantId).toLowerCase().replace(/[^a-z0-9]/g, "");
+        const matchedTenant = tenants.find(t => {
+          const normalizedName = (t.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          return normalizedName === normalizedParam;
+        });
+
+        if (matchedTenant) {
+          resolvedId = matchedTenant.id;
+          setActiveTenant(matchedTenant);
+        } else {
+          setActiveTenant(null);
+        }
+      }
+
+      setResolvedTenantId(resolvedId);
+      const data = await CareersService.listPublishedJobs(resolvedId);
       setJobs(data);
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Failed to load openings."));
@@ -32,8 +59,6 @@ export function CareersPage() {
   }, [load]);
 
   // SEO: set document title + meta/OG tags per page (list vs. selected job).
-  // Note: this is client-rendered; for crawlers that don't execute JS, add SSR
-  // or prerendering at the hosting layer for full coverage.
   useEffect(() => {
     const setMeta = (name: string, content: string, attr: "name" | "property" = "name") => {
       let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${name}"]`);
@@ -45,12 +70,13 @@ export function CareersPage() {
       el.setAttribute("content", content);
     };
 
+    const companyName = activeTenant?.name || "Careers";
     const title = selected
-      ? `${selected.title} — Careers`
-      : "Careers — Open Positions";
+      ? `${selected.title} — ${companyName}`
+      : `${companyName} — Open Positions`;
     const description = selected
       ? (selected.description?.slice(0, 155) || `Apply for ${selected.title}. ${titleCase(selected.employmentType)}, ${titleCase(selected.workMode)}.`)
-      : "Explore our open roles and join the team.";
+      : `Explore open roles at ${companyName} and join the team.`;
 
     const prevTitle = document.title;
     document.title = title;
@@ -62,16 +88,46 @@ export function CareersPage() {
     return () => {
       document.title = prevTitle;
     };
-  }, [selected, jobs, loading]);
+  }, [selected, jobs, loading, activeTenant]);
+
+  const primaryColor = activeTenant?.primaryColor || "#2563eb";
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .substring(0, 2)
+      .toUpperCase();
+  };
 
   return (
     <div className="min-h-dvh bg-slate-50">
       <header className="bg-white border-b border-slate-200">
         <div className="mx-auto max-w-3xl px-6 py-10">
-          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2">
-            <Briefcase className="h-7 w-7 text-blue-600" /> Careers
-          </h1>
-          <p className="text-slate-500 mt-2">Explore open roles and join our team.</p>
+          <div className="flex items-center gap-4">
+            {activeTenant?.logoURL ? (
+              <img
+                src={activeTenant.logoURL}
+                alt={activeTenant.name}
+                className="h-12 w-12 rounded-xl object-cover shrink-0"
+              />
+            ) : (
+              <div
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-white font-bold text-lg shadow-sm"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {activeTenant ? getInitials(activeTenant.name) : <Briefcase className="h-6 w-6" />}
+              </div>
+            )}
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900">
+                {activeTenant ? `${activeTenant.name} Careers` : "Careers"}
+              </h1>
+              <p className="text-slate-500 mt-1">
+                {activeTenant ? `Explore open roles and join the team at ${activeTenant.name}.` : "Explore open roles and join our team."}
+              </p>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -81,7 +137,7 @@ export function CareersPage() {
         ) : error ? (
           <div className="rounded-xl bg-rose-50 border border-rose-100 px-4 py-3 text-sm text-rose-700">{error}</div>
         ) : selected ? (
-          <JobApplication tenantId={tenantId} job={selected} onBack={() => setSelected(null)} />
+          <JobApplication tenantId={resolvedTenantId} job={selected} onBack={() => setSelected(null)} activeTenant={activeTenant} />
         ) : jobs.length === 0 ? (
           <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white p-10 text-center">
             <p className="text-slate-500">There are no open positions right now. Please check back later.</p>
@@ -110,7 +166,17 @@ export function CareersPage() {
   );
 }
 
-function JobApplication({ tenantId, job, onBack }: { tenantId: string; job: Job; onBack: () => void }) {
+function JobApplication({
+  tenantId,
+  job,
+  onBack,
+  activeTenant
+}: {
+  tenantId: string;
+  job: Job;
+  onBack: () => void;
+  activeTenant: Tenant | null;
+}) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -121,6 +187,8 @@ function JobApplication({ tenantId, job, onBack }: { tenantId: string; job: Job;
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const primaryColor = activeTenant?.primaryColor || "#2563eb";
 
   const submit = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
@@ -158,7 +226,11 @@ function JobApplication({ tenantId, job, onBack }: { tenantId: string; job: Job;
         <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
         <h2 className="mt-4 text-xl font-bold text-slate-900">Application submitted</h2>
         <p className="mt-2 text-slate-500">Thank you for applying to {job.title}. We've emailed you a confirmation and will be in touch.</p>
-        <button onClick={onBack} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 cursor-pointer">
+        <button
+          onClick={onBack}
+          className="mt-6 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white cursor-pointer hover:opacity-90 transition-all"
+          style={{ backgroundColor: primaryColor }}
+        >
           Back to openings
         </button>
       </div>
@@ -201,7 +273,12 @@ function JobApplication({ tenantId, job, onBack }: { tenantId: string; job: Job;
             {file ? file.name : "Upload your résumé (PDF/DOC, max 5MB)"}
             <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
-          <button onClick={submit} disabled={submitting} className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 cursor-pointer">
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 cursor-pointer hover:opacity-90 transition-all"
+            style={{ backgroundColor: primaryColor }}
+          >
             {submitting ? "Submitting…" : "Submit Application"}
           </button>
         </div>

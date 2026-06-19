@@ -719,10 +719,13 @@ export function EmployeesListPage() {
           </p>
         </div>
         
-        {activeTab === "directory" && canCreateEmployee && (
+        {activeTab === "directory" && (
           <button
             onClick={handleOpenCreateModal}
-            className="self-start inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity cursor-pointer"
+            disabled={!canCreateEmployee}
+            className={`self-start inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-opacity cursor-pointer ${
+              canCreateEmployee ? "hover:opacity-90" : "opacity-50 cursor-not-allowed"
+            }`}
             style={{ backgroundColor: primaryColor }}
           >
             <Plus size={16} />
@@ -730,10 +733,13 @@ export function EmployeesListPage() {
           </button>
         )}
 
-        {activeTab === "departments" && canManageDepartments && (
+        {activeTab === "departments" && (
           <button
             onClick={handleOpenCreateDeptModal}
-            className="self-start inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity cursor-pointer"
+            disabled={!canManageDepartments}
+            className={`self-start inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-opacity cursor-pointer ${
+              canManageDepartments ? "hover:opacity-90" : "opacity-50 cursor-not-allowed"
+            }`}
             style={{ backgroundColor: primaryColor }}
           >
             <Plus size={16} />
@@ -756,20 +762,18 @@ export function EmployeesListPage() {
           <Users size={16} />
           <span>People Directory</span>
         </button>
-        {canViewDepartments && (
-          <button
-            onClick={() => setActiveTab("departments")}
-            className={`flex items-center gap-2 py-3 px-5 text-sm font-bold border-b-2 cursor-pointer transition-all ${
-              activeTab === "departments"
-                ? "text-slate-900"
-                : "border-transparent text-slate-500 hover:text-slate-900"
-            }`}
-            style={activeTab === "departments" ? { borderColor: primaryColor, color: primaryColor } : {}}
-          >
-            <FolderTree size={16} />
-            <span>Departments ({departments.length})</span>
-          </button>
-        )}
+        <button
+          onClick={() => setActiveTab("departments")}
+          className={`flex items-center gap-2 py-3 px-5 text-sm font-bold border-b-2 cursor-pointer transition-all ${
+            activeTab === "departments"
+              ? "text-slate-900"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+          style={activeTab === "departments" ? { borderColor: primaryColor, color: primaryColor } : {}}
+        >
+          <FolderTree size={16} />
+          <span>Departments ({departments.length})</span>
+        </button>
         <button
           onClick={() => setActiveTab("orgchart")}
           className={`flex items-center gap-2 py-3 px-5 text-sm font-bold border-b-2 cursor-pointer transition-all ${
@@ -824,17 +828,23 @@ export function EmployeesListPage() {
               <option value="suspended">Suspended</option>
             </select>
 
-            {/* Toggle sensitive salary info display (available only for privileged roles) */}
-            {(hasPerm("employees.update") || hasPerm("employees.create")) && (
-              <button
-                type="button"
-                onClick={() => setShowSalaries(!showSalaries)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
-              >
-                {showSalaries ? <EyeOff size={14} /> : <Eye size={14} />}
-                <span>{showSalaries ? "Hide Salary" : "Show Salary"}</span>
-              </button>
-            )}
+            {/* Toggle sensitive salary info display (keep layout same; disable when not allowed) */}
+            {(() => {
+              const canToggleSalary = hasPerm("employees.update") || hasPerm("employees.create");
+              return (
+                <button
+                  type="button"
+                  onClick={() => canToggleSalary && setShowSalaries(!showSalaries)}
+                  disabled={!canToggleSalary}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition-opacity ${
+                    canToggleSalary ? "hover:bg-slate-50 cursor-pointer" : "opacity-50 cursor-not-allowed"
+                  }`}
+                >
+                  {showSalaries ? <EyeOff size={14} /> : <Eye size={14} />}
+                  <span>{showSalaries ? "Hide Salary" : "Show Salary"}</span>
+                </button>
+              );
+            })()}
           </div>
 
           {/* Directory Table */}
@@ -931,7 +941,7 @@ export function EmployeesListPage() {
                             </span>
                           </td>
 
-                          {/* Salary Column (Conditional Render) */}
+                          {/* Salary Column (conditional, as before) */}
                           {showSalaries && (
                             <td className="py-3 px-5 font-bold text-slate-800">
                               <div className="flex items-center gap-0.5">
@@ -953,6 +963,7 @@ export function EmployeesListPage() {
                                   <KeyRound size={13} />
                                 </button>
                               )}
+
                               {canEditEmployee && (
                                 <button
                                   onClick={() => handleOpenEditModal(emp)}
@@ -962,6 +973,7 @@ export function EmployeesListPage() {
                                   <Edit2 size={13} />
                                 </button>
                               )}
+
                               {canDeleteEmployee && emp.id !== callerEmployee?.id && (
                                 <button
                                   onClick={() => handleDeleteEmployee(emp.id, `${emp.firstName} ${emp.lastName}`)}

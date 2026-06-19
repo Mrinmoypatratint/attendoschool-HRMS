@@ -2,13 +2,13 @@ import { getFriendlyErrorMessage } from "../../../lib/errors";
 import { useState, useEffect } from "react";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
-import { db, functions } from "../../../lib/firebase";
+import { db, functions, auth } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
 import { useHasPermission } from "../../rbac/hooks/usePermissions";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { ErrorState } from "../../../components/ui/ErrorState";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { UserPlus, Search, Shield, ToggleLeft, ToggleRight, Mail, UserCheck, X } from "lucide-react";
+import { UserPlus, Search, Shield, ToggleLeft, ToggleRight, Mail, UserCheck, X, Edit } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { UserProfile } from "@hrms/middleware";
 import { assignRoleToUser } from "../../rbac/utils/roleAssign";
@@ -39,6 +39,14 @@ export function UsersListPage() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState(false);
 
+  // Edit modal states
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   const tenantId = profile?.activeTenantId || "";
 
   const [customRoles, setCustomRoles] = useState<any[]>([]);
@@ -52,6 +60,8 @@ export function UsersListPage() {
     setError(null);
     try {
       // 1. Fetch members
+      // Keep disabled in the dataset so the "Disabled" filter can work.
+      // We'll exclude it from display when the UI is in the default "All" state.
       const q = query(
         collection(db, "users"),
         where(`tenants.${tenantId}.status`, "in", ["active", "invited", "disabled"])
@@ -89,14 +99,54 @@ export function UsersListPage() {
   // Handle Enable/Disable Status
   const toggleUserStatus = async (user: UserProfile) => {
     const currentStatus = user.tenants?.[tenantId]?.status;
-    const newStatus = currentStatus === "active" ? "disabled" : "active";
+    const nextStatus = currentStatus === "active" ? "disabled" : "active";
 
     try {
-      const userRef = doc(db, "users", user.id);
-      await updateDoc(userRef, {
-        [`tenants.${tenantId}.status`]: newStatus,
-        updatedAt: Date.now(),
+      if (import.meta.env.VITE_USE_EMULATOR === "true") {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error("No auth token available.");
+
+          const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || "demo-mock-project";
+          const response = await fetch(
+            `http://127.0.0.1:5001/${projectId}/us-central1/toggleUserTenantStatusHttp`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                tenantId,
+                userId: user.id,
+                nextStatus,
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP error ${response.status}`);
+          }
+
+          // Refresh list and exit
+          fetchMembers();
+          return;
+        } catch (httpErr) {
+          console.warn("HTTP status toggle failed, falling back to callable function", httpErr);
+        }
+      }
+
+      const toggleFn = httpsCallable<{ tenantId: string; userId: string; nextStatus: string }, { success: boolean; status: string }>(
+        functions,
+        "toggleUserTenantStatus"
+      );
+      await toggleFn({
+        tenantId,
+        userId: user.id,
+        nextStatus,
       });
+
       // Refresh list
       fetchMembers();
     } catch (err: any) {
@@ -126,7 +176,6 @@ export function UsersListPage() {
     }
   };
 
-
   // Handle Invite Submit
   const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +186,10 @@ export function UsersListPage() {
     setInviteSuccess(false);
 
     try {
-      const inviteUserFn = httpsCallable(functions, "inviteUser");
+      const inviteUserFn = httpsCallable<{ email: string; tenantId: string; role: string; displayName?: string }, { success: boolean; inviteId: string }>(
+        functions,
+        "inviteUser"
+      );
       await inviteUserFn({ email: inviteEmail, tenantId, role: inviteRole, displayName: inviteName });
       setInviteSuccess(true);
       setInviteEmail("");
@@ -148,6 +200,73 @@ export function UsersListPage() {
       setInviteError(getFriendlyErrorMessage(err, "Failed to send invitation. Make sure Firebase Functions are running."));
     } finally {
       setInviteLoading(false);
+    }
+  };
+
+  // Handle Edit Submit
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !editName.trim() || !editEmail.trim()) return;
+
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      if (import.meta.env.VITE_USE_EMULATOR === "true") {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error("No auth token available.");
+
+          const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || "demo-mock-project";
+          const response = await fetch(
+            `http://127.0.0.1:5001/${projectId}/us-central1/updateUserProfileHttp`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                tenantId,
+                userId: editingUser.id,
+                displayName: editName.trim(),
+                email: editEmail.trim().toLowerCase(),
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP error ${response.status}`);
+          }
+
+          setEditModalOpen(false);
+          setEditingUser(null);
+          fetchMembers();
+          return;
+        } catch (httpErr) {
+          console.warn("HTTP profile update failed, falling back to callable function", httpErr);
+        }
+      }
+
+      const updateProfileFn = httpsCallable<{ tenantId: string; userId: string; displayName: string; email: string }, { success: boolean }>(
+        functions,
+        "updateUserProfile"
+      );
+      await updateProfileFn({
+        tenantId,
+        userId: editingUser.id,
+        displayName: editName.trim(),
+        email: editEmail.trim().toLowerCase(),
+      });
+
+      setEditModalOpen(false);
+      setEditingUser(null);
+      fetchMembers();
+    } catch (err: any) {
+      console.error(err);
+      setEditError(getFriendlyErrorMessage(err, "Failed to update user details."));
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -378,20 +497,36 @@ export function UsersListPage() {
                         </span>
                       </td>
                       {hasPermission("users.update") && (
-                        <td className="py-4 px-6 text-right">
+                        <td className="py-4 px-6 text-right whitespace-nowrap">
                           {member.id !== profile?.id && (
-                            <button
-                              type="button"
-                              onClick={() => toggleUserStatus(member)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
-                              title={memberTenant.status === "active" ? "Disable User" : "Activate User"}
-                            >
-                              {memberTenant.status === "active" ? (
-                                <ToggleRight size={20} className="text-blue-600" />
-                              ) : (
-                                <ToggleLeft size={20} className="text-slate-400" />
-                              )}
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingUser(member);
+                                  setEditName(member.displayName);
+                                  setEditEmail(member.email);
+                                  setEditError(null);
+                                  setEditModalOpen(true);
+                                }}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition-colors"
+                                title="Edit User"
+                              >
+                                <Edit size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleUserStatus(member)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition-colors"
+                                title={memberTenant.status === "active" ? "Disable User" : "Activate User"}
+                              >
+                                {memberTenant.status === "active" ? (
+                                  <ToggleRight size={20} className="text-blue-600" />
+                                ) : (
+                                  <ToggleLeft size={20} className="text-slate-400" />
+                                )}
+                              </button>
+                            </div>
                           )}
                         </td>
                       )}
@@ -515,6 +650,9 @@ export function UsersListPage() {
                     <option value="hr_manager">HR Manager</option>
                     <option value="recruiter">Recruiter</option>
                     <option value="employee">Employee</option>
+                    {customRoles.map((role) => (
+                      <option key={role.id} value={role.id}>{role.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -527,6 +665,91 @@ export function UsersListPage() {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {editModalOpen && editingUser && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-md relative">
+            <button
+              onClick={() => {
+                setEditModalOpen(false);
+                setEditingUser(null);
+              }}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <Edit size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">Edit User Details</h3>
+                <p className="text-xs text-slate-500">Update the profile details for this user.</p>
+              </div>
+            </div>
+
+            {editError && (
+              <div className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700 border border-red-100">
+                {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleEditSubmit} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="edit-name" className="text-sm font-semibold text-slate-700">
+                  Full Name
+                </label>
+                <input
+                  id="edit-name"
+                  type="text"
+                  required
+                  placeholder="John Doe"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="edit-email" className="text-sm font-semibold text-slate-700">
+                  Email Address
+                </label>
+                <input
+                  id="edit-email"
+                  type="email"
+                  required
+                  placeholder="teammate@company.com"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                />
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditModalOpen(false);
+                    setEditingUser(null);
+                  }}
+                  className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editLoading}
+                  className="flex-1 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  {editLoading ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
