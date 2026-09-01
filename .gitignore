@@ -22,6 +22,7 @@ out/
 # Firebase Cache & Data Persistence
 .firebase/
 .firebase-emulator-data/
+.vercel
 *-debug.log
 firebase-debug.log
 firestore-debug.log
