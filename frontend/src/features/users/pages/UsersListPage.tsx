@@ -1,5 +1,5 @@
 import { getFriendlyErrorMessage } from "../../../lib/errors";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions, auth } from "../../../lib/firebase";
@@ -51,7 +51,7 @@ export function UsersListPage() {
 
   const [customRoles, setCustomRoles] = useState<any[]>([]);
 
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     if (!tenantId) {
       setLoading(false);
       return;
@@ -90,11 +90,11 @@ export function UsersListPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
     fetchMembers();
-  }, [tenantId]);
+  }, [tenantId, fetchMembers]);
 
   // Handle Enable/Disable Status
   const toggleUserStatus = async (user: UserProfile) => {

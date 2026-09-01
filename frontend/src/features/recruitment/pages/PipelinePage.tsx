@@ -67,7 +67,10 @@ export function PipelinePage() {
   }, [fetchAll]);
 
   const selectedJob = useMemo(() => jobs.find((j) => j.id === selectedJobId), [jobs, selectedJobId]);
-  const stages = selectedJob?.pipelineStages ?? [...DEFAULT_PIPELINE_STAGES];
+  const stages = useMemo(
+    () => selectedJob?.pipelineStages ?? [...DEFAULT_PIPELINE_STAGES],
+    [selectedJob?.pipelineStages]
+  );
 
   const jobCandidates = useMemo(() => {
     let list = candidates.filter((c) => c.jobId === selectedJobId);

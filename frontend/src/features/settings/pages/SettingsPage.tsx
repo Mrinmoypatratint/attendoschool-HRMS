@@ -11,7 +11,7 @@
  * (org_admin / super_admin / hr_manager).
  */
 import { getFriendlyErrorMessage } from "../../../lib/errors";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -196,7 +196,7 @@ export function SettingsPage() {
     }
   };
 
-  const fetchAuditLogs = async () => {
+  const fetchAuditLogs = useCallback(async () => {
     if (!tenantId) return;
     setLoadingAudit(true);
     try {
@@ -207,13 +207,13 @@ export function SettingsPage() {
     } finally {
       setLoadingAudit(false);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
     if (activeTab === "audit") {
       fetchAuditLogs();
     }
-  }, [activeTab, tenantId]);
+  }, [activeTab, tenantId, fetchAuditLogs]);
 
   const hasPermission = useHasPermission();
   const isAuthorizedToManage = hasPermission("roles.update");

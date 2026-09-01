@@ -1,5 +1,5 @@
 import { getFriendlyErrorMessage } from "../../../lib/errors";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { useNavigate } from "react-router-dom";
@@ -348,7 +348,7 @@ export function EmployeesListPage() {
   const DEPT_PAGE_SIZE = 6;
 
   // Fetch users within tenant to link their profiles
-  const fetchTenantUsers = async () => {
+  const fetchTenantUsers = useCallback(async () => {
     if (!tenantId) return;
     try {
       const q = query(
@@ -364,13 +364,13 @@ export function EmployeesListPage() {
     } catch (err) {
       console.error("Failed to load tenant users:", err);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
     if (employeeModalOpen) {
       fetchTenantUsers();
     }
-  }, [employeeModalOpen, tenantId]);
+  }, [employeeModalOpen, tenantId, fetchTenantUsers]);
 
   // SEC-002: load compensation only for roles allowed to see it (employees.update).
   useEffect(() => {

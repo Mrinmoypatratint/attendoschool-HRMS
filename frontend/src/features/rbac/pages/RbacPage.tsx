@@ -1,5 +1,5 @@
 import { getFriendlyErrorMessage } from "../../../lib/errors";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { collection, doc, setDoc, getDocs, deleteDoc, query, where, updateDoc, orderBy } from "firebase/firestore";
 import { db } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
@@ -111,7 +111,7 @@ export function RbacPage() {
   const [isCreatingRole, setIsCreatingRole] = useState(false);
 
   // Fetch Roles
-  const fetchRoles = async () => {
+  const fetchRoles = useCallback(async () => {
     if (!tenantId) {
       setLoadingRoles(false);
       return;
@@ -135,10 +135,10 @@ export function RbacPage() {
     } finally {
       setLoadingRoles(false);
     }
-  };
+  }, [tenantId]);
 
   // Fetch tenant-scoped system-role permission overrides
-  const fetchSystemOverrides = async () => {
+  const fetchSystemOverrides = useCallback(async () => {
     if (!tenantId) return;
     try {
       const q = query(
@@ -157,10 +157,10 @@ export function RbacPage() {
     } catch (err) {
       console.error("Failed to fetch system role overrides:", err);
     }
-  };
+  }, [tenantId]);
 
   // Fetch Tenant Members
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     if (!tenantId) return;
     setLoadingMembers(true);
     try {
@@ -179,10 +179,10 @@ export function RbacPage() {
     } finally {
       setLoadingMembers(false);
     }
-  };
+  }, [tenantId]);
 
   // Fetch Audit Logs
-  const fetchAuditLogs = async () => {
+  const fetchAuditLogs = useCallback(async () => {
     if (!tenantId) return;
     setLoadingAudit(true);
     try {
@@ -202,13 +202,13 @@ export function RbacPage() {
     } finally {
       setLoadingAudit(false);
     }
-  };
+  }, [tenantId]);
 
   // Initial Fetch & Tab Sync
   useEffect(() => {
     fetchRoles();
     fetchSystemOverrides();
-  }, [tenantId]);
+  }, [tenantId, fetchRoles, fetchSystemOverrides]);
 
   useEffect(() => {
     if (activeTab === "users") {
@@ -217,7 +217,7 @@ export function RbacPage() {
     } else if (activeTab === "audit") {
       fetchAuditLogs();
     }
-  }, [activeTab, tenantId]);
+  }, [activeTab, tenantId, fetchMembers, fetchRoles, fetchAuditLogs]);
 
   const hasPermission = useHasPermission();
   // Authorization: only org/super admins may mutate roles & matrices.
@@ -250,7 +250,6 @@ export function RbacPage() {
         : base;
     }
     return customRoles.find((r) => r.id === selectedRole);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRole, isSelectedRoleSystem, activeSystemOverride, customRoles]);
 
   useEffect(() => {
