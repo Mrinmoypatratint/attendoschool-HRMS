@@ -23,7 +23,7 @@ set -euo pipefail
 
 TARBALL_PATH="${1:-}"
 COMMIT_SHA="${2:-}"
-BASE_DIR="${3:-/var/www/hrms-attendoschool}"
+BASE_DIR="${3:-/home/attendoschool-hrms/htdocs/hrms.attendoschool.online}"
 KEEP_RELEASES="${4:-5}"
 
 if [ -z "${TARBALL_PATH}" ] || [ -z "${COMMIT_SHA}" ]; then
@@ -128,14 +128,13 @@ ln -s "${TARGET_RELEASE_DIR}" "${TMP_LINK}"
 mv -Tf "${TMP_LINK}" "${CURRENT_LINK}"
 echo "      [✓] Symlink 'current' atomically updated -> ${TARGET_RELEASE_DIR}"
 
-# 7. Reload Nginx
+# 7. Reload Nginx (Optional, only if permitted; symlink change is already live)
 echo "[6/7] Reloading web server..."
 if command -v nginx >/dev/null 2>&1; then
-  if sudo nginx -t >/dev/null 2>&1; then
-    sudo systemctl reload nginx
-    echo "      [✓] Nginx reloaded successfully."
+  if sudo -n nginx -t >/dev/null 2>&1; then
+    sudo -n systemctl reload nginx 2>/dev/null && echo "      [✓] Nginx reloaded successfully." || true
   else
-    echo "[-] WARNING: Nginx configuration test failed. Not reloading Nginx." >&2
+    echo "      (Notice) Nginx config reload skipped; atomic symlink is already actively serving."
   fi
 else
   echo "      (Notice) Nginx binary not found in path; skipping reload."

@@ -131,20 +131,22 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          TARGET_DIR: ${{ vars.VPS_TARGET_DIR || '/home/attendoschool-hrms/htdocs/hrms.attendoschool.online' }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" << 'EOF'
+          ssh -i ~/.ssh/deploy_key -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+            "TARGET_DIR='${TARGET_DIR}' COMMIT_SHA='${COMMIT_SHA}' bash -s" << 'EOF'
             set -euo pipefail
             chmod +x /tmp/deploy-production.sh /tmp/verify-release.sh /tmp/rollback-production.sh
             
             # Execute atomic zero-downtime release deployment
-            /tmp/deploy-production.sh "/tmp/hrms-frontend-${COMMIT_SHA}.tar.gz" "${COMMIT_SHA}" /var/www/hrms-attendoschool 5
+            /tmp/deploy-production.sh "/tmp/hrms-frontend-${COMMIT_SHA}.tar.gz" "${COMMIT_SHA}" "${TARGET_DIR}" 5
             
             # Run multi-layered health check verification
             echo "Running health checks on active release..."
-            if ! /tmp/verify-release.sh "hrms.attendoschool.online" /var/www/hrms-attendoschool; then
+            if ! /tmp/verify-release.sh "hrms.attendoschool.online" "${TARGET_DIR}"; then
               echo "[-] Verification failed! Triggering automatic release rollback..." >&2
-              /tmp/rollback-production.sh "" /var/www/hrms-attendoschool
+              /tmp/rollback-production.sh "" "${TARGET_DIR}"
               exit 1
             fi
             

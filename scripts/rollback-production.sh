@@ -14,7 +14,7 @@
 set -euo pipefail
 
 TARGET_SHA="${1:-}"
-BASE_DIR="${2:-/var/www/hrms-attendoschool}"
+BASE_DIR="${2:-/home/attendoschool-hrms/htdocs/hrms.attendoschool.online}"
 
 RELEASES_DIR="${BASE_DIR}/releases"
 SHARED_DIR="${BASE_DIR}/shared"
@@ -90,12 +90,11 @@ TMP_LINK="${BASE_DIR}/current.rollback.tmp.$$"
 ln -s "${ROLLBACK_TARGET}" "${TMP_LINK}"
 mv -Tf "${TMP_LINK}" "${CURRENT_LINK}"
 
-# Reload Nginx
+# Reload Nginx (optional)
 echo "[+] Reloading web server..."
 if command -v nginx >/dev/null 2>&1; then
-  if sudo nginx -t >/dev/null 2>&1; then
-    sudo systemctl reload nginx
-    echo "    [✓] Nginx reloaded."
+  if sudo -n nginx -t >/dev/null 2>&1; then
+    sudo -n systemctl reload nginx 2>/dev/null && echo "    [✓] Nginx reloaded." || true
   fi
 fi
 

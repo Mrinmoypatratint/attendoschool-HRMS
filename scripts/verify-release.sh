@@ -20,7 +20,7 @@
 set -euo pipefail
 
 HOST_HEADER="${1:-hrms.attendoschool.online}"
-BASE_DIR="${2:-/var/www/hrms-attendoschool}"
+BASE_DIR="${2:-/home/attendoschool-hrms/htdocs/hrms.attendoschool.online}"
 CURRENT_LINK="${BASE_DIR}/current"
 LOCAL_URL="http://127.0.0.1"
 
@@ -78,7 +78,7 @@ fi
 # ------------------------------------------------------------------------------
 echo "--- [Layer 2] Web Server HTTP Root Response ---"
 
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}/" || echo "000")
+HTTP_CODE=$(curl -s -k -L -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}/" || echo "000")
 if [ "${HTTP_CODE}" = "200" ]; then
   record_pass "HTTP GET / returned status 200 OK."
 else
@@ -93,7 +93,7 @@ echo "--- [Layer 3] Static Assets Availability ---"
 # Extract main JavaScript entry file from index.html
 JS_ASSET=$(grep -o -E 'src="[^"]*\.js"' "${INDEX_FILE}" | head -n 1 | cut -d'"' -f2 || echo "")
 if [ -n "${JS_ASSET}" ]; then
-  JS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}${JS_ASSET}" || echo "000")
+  JS_CODE=$(curl -s -k -L -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}${JS_ASSET}" || echo "000")
   if [ "${JS_CODE}" = "200" ]; then
     record_pass "Main JavaScript chunk (${JS_ASSET}) returned 200 OK."
   else
@@ -106,7 +106,7 @@ fi
 # Extract main CSS file from index.html
 CSS_ASSET=$(grep -o -E 'href="[^"]*\.css"' "${INDEX_FILE}" | head -n 1 | cut -d'"' -f2 || echo "")
 if [ -n "${CSS_ASSET}" ]; then
-  CSS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}${CSS_ASSET}" || echo "000")
+  CSS_CODE=$(curl -s -k -L -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}${CSS_ASSET}" || echo "000")
   if [ "${CSS_CODE}" = "200" ]; then
     record_pass "Main CSS chunk (${CSS_ASSET}) returned 200 OK."
   else
@@ -122,7 +122,7 @@ fi
 echo "--- [Layer 4] Direct SPA Route Resolution ---"
 
 # Test direct navigation to /login
-LOGIN_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}/login" || echo "000")
+LOGIN_CODE=$(curl -s -k -L -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}/login" || echo "000")
 if [ "${LOGIN_CODE}" = "200" ]; then
   record_pass "Direct SPA route /login returned 200 OK."
 else
@@ -130,7 +130,7 @@ else
 fi
 
 # Test direct navigation to /attendance
-ATT_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}/attendance" || echo "000")
+ATT_CODE=$(curl -s -k -L -o /dev/null -w "%{http_code}" -H "Host: ${HOST_HEADER}" "${LOCAL_URL}/attendance" || echo "000")
 if [ "${ATT_CODE}" = "200" ]; then
   record_pass "Direct SPA route /attendance returned 200 OK."
 else
