@@ -75,7 +75,7 @@ export function JobsListPage() {
     openings: 1,
     salaryMin: "",
     salaryMax: "",
-    currency: "USD",
+    currency: "INR",
     description: "",
     responsibilities: "",
     requirements: "",
@@ -144,7 +144,7 @@ export function JobsListPage() {
       openings: 1,
       salaryMin: "",
       salaryMax: "",
-      currency: "USD",
+      currency: "INR",
       description: "",
       responsibilities: "",
       requirements: "",
@@ -564,7 +564,7 @@ export function JobsListPage() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Currency</label>
-                <input value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+                <input value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))} placeholder="INR" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Salary Min</label>

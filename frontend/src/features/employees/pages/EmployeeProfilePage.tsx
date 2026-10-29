@@ -449,7 +449,7 @@ function ContractsTab({
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [f, setF] = useState({ title: "", type: "full_time" as ContractType, startDate: today(), endDate: "", salary: "", currency: "USD", status: "active" as ContractStatus, notes: "" });
+  const [f, setF] = useState({ title: "", type: "full_time" as ContractType, startDate: today(), endDate: "", salary: "", currency: "INR", status: "active" as ContractStatus, notes: "" });
   const [file, setFile] = useState<File | null>(null);
 
   const save = async () => {
@@ -471,7 +471,7 @@ function ContractsTab({
         ...docFields,
       }, caller);
       setOpen(false); setFile(null);
-      setF({ title: "", type: "full_time", startDate: today(), endDate: "", salary: "", currency: "USD", status: "active", notes: "" });
+      setF({ title: "", type: "full_time", startDate: today(), endDate: "", salary: "", currency: "INR", status: "active", notes: "" });
       await reload();
     } catch (e) { setError(getFriendlyErrorMessage(e, "Failed to save contract.")); }
     finally { setSaving(false); }
@@ -490,7 +490,7 @@ function ContractsTab({
               <div key={c.id} className="rounded-xl border border-slate-200 bg-white p-4 flex items-start justify-between gap-3">
                 <div>
                   <div className="font-semibold text-slate-900">{c.title}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{tc(c.type)} · {c.currency} {c.salary.toLocaleString()} · {c.startDate}{c.endDate ? ` → ${c.endDate}` : ""}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{tc(c.type)} · ₹{c.salary.toLocaleString('en-IN')} ({c.currency || "INR"}) · {c.startDate}{c.endDate ? ` → ${c.endDate}` : ""}</div>
                   <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${status === "active" ? "bg-emerald-100 text-emerald-700" : status === "expired" ? "bg-amber-100 text-amber-700" : status === "terminated" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{tc(status)}</span>
                   {c.documentUrl && <a href={c.documentUrl} target="_blank" rel="noreferrer" className="ml-2 text-xs font-medium text-blue-600 hover:underline">Document</a>}
                 </div>
@@ -516,7 +516,7 @@ function ContractsTab({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <input type="number" value={f.salary} onChange={(e) => setF({ ...f, salary: e.target.value })} placeholder="Salary" className={inputCls} />
-            <input value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })} placeholder="Currency" className={inputCls} />
+            <input value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })} placeholder="Currency (INR)" className={inputCls} />
           </div>
           <textarea value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} placeholder="Notes" rows={2} className={inputCls} />
           <label className="flex items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:bg-slate-50">
@@ -637,7 +637,7 @@ function HistoryTab({
               <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-start justify-between gap-3">
                 <div>
                   <div className="font-semibold text-slate-900">{tc(e.changeType)} — {e.title}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{e.effectiveDate}{e.departmentId ? ` · ${departments.find((d) => d.id === e.departmentId)?.name ?? ""}` : ""}{e.salary ? ` · ${e.salary.toLocaleString()}` : ""}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{e.effectiveDate}{e.departmentId ? ` · ${departments.find((d) => d.id === e.departmentId)?.name ?? ""}` : ""}{e.salary ? ` · ₹${e.salary.toLocaleString('en-IN')}` : ""}</div>
                   {e.note && <div className="text-sm text-slate-600 mt-1">{e.note}</div>}
                 </div>
                 {canEdit && (

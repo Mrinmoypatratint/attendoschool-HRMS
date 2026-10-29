@@ -5,7 +5,7 @@ import { PayrollService } from "../services/payrollService";
 import { CampusService } from "../../campuses/services/campusService";
 import type { PayrollRun, Payslip, Campus } from "@hrms/middleware";
 import { 
-  DollarSign, 
+  IndianRupee, 
   Plus, 
   Calendar, 
   CheckCircle2, 
@@ -147,7 +147,7 @@ export function PayrollPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <DollarSign className="text-blue-600" size={26} />
+            <IndianRupee className="text-blue-600" size={26} />
             Institutional Payroll & Compensation
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -173,7 +173,7 @@ export function PayrollPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
           <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Net Disbursed ({selectedYear})</div>
-          <div className="text-2xl font-bold text-slate-900 mt-1">${totalOutflow.toLocaleString()}</div>
+          <div className="text-2xl font-bold text-slate-900 mt-1">₹{totalOutflow.toLocaleString('en-IN')}</div>
           <div className="text-xs text-slate-400 mt-0.5">{payrollRuns.length} Payroll Cycles</div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm">
@@ -232,7 +232,7 @@ export function PayrollPage() {
           <ErrorState title="Failed to load payroll" description={error} onRetry={loadData} />
         ) : payrollRuns.length === 0 ? (
           <EmptyState
-            icon={<DollarSign className="text-slate-300" size={40} />}
+            icon={<IndianRupee className="text-slate-300" size={40} />}
             title="No payroll runs recorded"
             description="Click 'Process Monthly Payroll' to calculate salaries and generate itemized payslips."
           />
@@ -265,13 +265,13 @@ export function PayrollPage() {
                       {run.employeeCount} Staff
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-slate-700">
-                      ${run.totalGross.toLocaleString()}
+                      ₹{run.totalGross.toLocaleString('en-IN')}
                     </td>
                     <td className="py-3 px-4 font-mono text-xs text-rose-600">
-                      -${run.totalDeductions.toLocaleString()}
+                      -₹{run.totalDeductions.toLocaleString('en-IN')}
                     </td>
                     <td className="py-3 px-4 font-mono font-bold text-emerald-700 text-sm">
-                      ${run.totalNet.toLocaleString()}
+                      ₹{run.totalNet.toLocaleString('en-IN')}
                     </td>
                     <td className="py-3 px-4">
                       <span
@@ -367,19 +367,19 @@ export function PayrollPage() {
                         {slip.employeeName}
                       </td>
                       <td className="py-3 px-4 font-mono text-xs">
-                        ${slip.basicSalary.toLocaleString()}
+                        ₹{slip.basicSalary.toLocaleString('en-IN')}
                       </td>
                       <td className="py-3 px-4 font-mono text-xs text-slate-500">
-                        ${slip.allowances.da + slip.allowances.hra + slip.allowances.ta}
+                        ₹{(slip.allowances.da + slip.allowances.hra + slip.allowances.ta).toLocaleString('en-IN')}
                       </td>
                       <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-800">
-                        ${slip.grossEarnings.toLocaleString()}
+                        ₹{slip.grossEarnings.toLocaleString('en-IN')}
                       </td>
                       <td className="py-3 px-4 font-mono text-xs text-rose-600">
-                        -${slip.totalDeductions.toLocaleString()}
+                        -₹{slip.totalDeductions.toLocaleString('en-IN')}
                       </td>
                       <td className="py-3 px-4 font-mono text-xs font-bold text-emerald-700">
-                        ${slip.netSalary.toLocaleString()}
+                        ₹{slip.netSalary.toLocaleString('en-IN')}
                       </td>
                       <td className="py-3 px-4">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -413,7 +413,7 @@ export function PayrollPage() {
             className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100"
           >
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <DollarSign className="text-blue-600" size={20} />
+              <IndianRupee className="text-blue-600" size={20} />
               Process Monthly Payroll
             </h2>
             <p className="text-xs text-slate-500 mt-1">
@@ -557,27 +557,27 @@ export function PayrollPage() {
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Basic Pay</span>
-                    <span className="font-mono font-medium">${selectedPayslip.basicSalary}</span>
+                    <span className="font-mono font-medium">₹{selectedPayslip.basicSalary.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Dearness Allowance (DA)</span>
-                    <span className="font-mono font-medium">${selectedPayslip.allowances.da}</span>
+                    <span className="font-mono font-medium">₹{selectedPayslip.allowances.da.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">House Rent (HRA)</span>
-                    <span className="font-mono font-medium">${selectedPayslip.allowances.hra}</span>
+                    <span className="font-mono font-medium">₹{selectedPayslip.allowances.hra.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Transport Allowance (TA)</span>
-                    <span className="font-mono font-medium">${selectedPayslip.allowances.ta}</span>
+                    <span className="font-mono font-medium">₹{selectedPayslip.allowances.ta.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Academic / Special</span>
-                    <span className="font-mono font-medium">${selectedPayslip.allowances.special}</span>
+                    <span className="font-mono font-medium">₹{selectedPayslip.allowances.special.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="pt-2 border-t flex justify-between font-bold text-slate-900">
                     <span>Total Gross</span>
-                    <span>${selectedPayslip.grossEarnings.toLocaleString()}</span>
+                    <span>₹{selectedPayslip.grossEarnings.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
               </div>
@@ -590,23 +590,23 @@ export function PayrollPage() {
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Provident Fund (PF 12%)</span>
-                    <span className="font-mono font-medium text-rose-600">-${selectedPayslip.deductions.pf}</span>
+                    <span className="font-mono font-medium text-rose-600">-₹{selectedPayslip.deductions.pf.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">ESI (0.75%)</span>
-                    <span className="font-mono font-medium text-rose-600">-${selectedPayslip.deductions.esi}</span>
+                    <span className="font-mono font-medium text-rose-600">-₹{selectedPayslip.deductions.esi.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Professional Tax</span>
-                    <span className="font-mono font-medium text-rose-600">-${selectedPayslip.deductions.professionalTax}</span>
+                    <span className="font-mono font-medium text-rose-600">-₹{selectedPayslip.deductions.professionalTax.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">TDS / Income Tax</span>
-                    <span className="font-mono font-medium text-rose-600">-${selectedPayslip.deductions.tds}</span>
+                    <span className="font-mono font-medium text-rose-600">-₹{selectedPayslip.deductions.tds.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="pt-2 border-t flex justify-between font-bold text-rose-700">
                     <span>Total Deductions</span>
-                    <span>-${selectedPayslip.totalDeductions.toLocaleString()}</span>
+                    <span>-₹{selectedPayslip.totalDeductions.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
               </div>
@@ -619,7 +619,7 @@ export function PayrollPage() {
                 <div className="text-xs text-emerald-600">Disbursed via Direct Bank Deposit</div>
               </div>
               <div className="text-2xl font-bold font-mono text-emerald-700">
-                ${selectedPayslip.netSalary.toLocaleString()}
+                ₹{selectedPayslip.netSalary.toLocaleString('en-IN')}
               </div>
             </div>
 

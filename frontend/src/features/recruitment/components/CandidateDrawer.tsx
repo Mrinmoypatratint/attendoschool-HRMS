@@ -332,7 +332,7 @@ function OfferTab({
 }) {
   const [open, setOpen] = useState(false);
   const [salary, setSalary] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [currency, setCurrency] = useState("INR");
   const [startDate, setStartDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
 
@@ -388,7 +388,7 @@ function OfferTab({
         offers.map((of) => (
           <div key={of.id} className="rounded-xl border border-slate-100 p-3">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-800 text-sm">{of.currency} {of.salary.toLocaleString()}</span>
+              <span className="font-semibold text-slate-800 text-sm">₹{of.salary.toLocaleString('en-IN')} ({of.currency || "INR"})</span>
               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${offerStatusClass(of.status)}`}>{titleCase(of.status)}</span>
             </div>
             <div className="text-xs text-slate-500 mt-1">Start {of.startDate} · Expires {of.expiryDate}</div>

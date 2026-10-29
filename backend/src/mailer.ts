@@ -592,13 +592,14 @@ export default sendInterviewInviteEmail;
 /* ------------------------------------------------------------------ */
 
 /**
- * Localizes numeric figures into standard currencies (e.g. USD, EUR).
+ * Localizes numeric figures into standard currencies (e.g. INR).
  */
 function formatMoney(amount: number, currency: string): string {
   try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(amount);
+    const curr = currency || "INR";
+    return new Intl.NumberFormat(curr === "INR" ? "en-IN" : "en-US", { style: "currency", currency: curr, maximumFractionDigits: 0 }).format(amount);
   } catch {
-    return `${currency} ${amount.toLocaleString()}`;
+    return `${currency || "INR"} ${amount.toLocaleString("en-IN")}`;
   }
 }
 

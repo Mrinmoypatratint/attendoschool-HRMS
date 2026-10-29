@@ -28,7 +28,7 @@ function contract(o: Partial<EmployeeContract> = {}): EmployeeContract {
   return {
     id: "c1", tenantId: "t1", employeeId: "e1",
     title: "Permanent Agreement", type: "full_time",
-    startDate: "2025-01-01", salary: 100000, currency: "USD", status: "active",
+    startDate: "2025-01-01", salary: 100000, currency: "INR", status: "active",
     createdAt: 1, updatedAt: 1, ...o,
   };
 }

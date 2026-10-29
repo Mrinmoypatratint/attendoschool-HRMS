@@ -21,7 +21,7 @@ import {
   Briefcase, 
   MapPin, 
   Calendar, 
-  DollarSign, 
+  IndianRupee, 
   FolderTree, 
   Search, 
   Eye, 
@@ -470,7 +470,7 @@ export function EmployeesListPage() {
     try {
       if (editingEmployee) {
         await EmployeeService.updateEmployee(editingEmployee.id, employeeData, callerInfo);
-        await EmployeeService.setCompensation(editingEmployee.id, tenantId, Number(salary), "USD", callerInfo);
+        await EmployeeService.setCompensation(editingEmployee.id, tenantId, Number(salary), "INR", callerInfo);
         alert("Employee updated successfully!");
         setEmployeeModalOpen(false);
         refetch();
@@ -478,7 +478,7 @@ export function EmployeesListPage() {
         // Create the employee profile first.
         const created = await EmployeeService.createEmployee(tenantId, empId, employeeData, callerInfo);
         // SEC-002: store salary in the access-controlled compensation collection.
-        await EmployeeService.setCompensation(created.id, tenantId, Number(salary), "USD", callerInfo);
+        await EmployeeService.setCompensation(created.id, tenantId, Number(salary), "INR", callerInfo);
 
         // Optionally provision a login account + email a set-password link.
         if (createLogin && email.trim()) {
@@ -945,8 +945,8 @@ export function EmployeesListPage() {
                           {showSalaries && (
                             <td className="py-3 px-5 font-bold text-slate-800">
                               <div className="flex items-center gap-0.5">
-                                <DollarSign size={12} className="text-slate-400" />
-                                {(compMap[emp.id]?.salary ?? 0).toLocaleString()}
+                                <IndianRupee size={12} className="text-slate-400" />
+                                {(compMap[emp.id]?.salary ?? 0).toLocaleString('en-IN')}
                               </div>
                             </td>
                           )}

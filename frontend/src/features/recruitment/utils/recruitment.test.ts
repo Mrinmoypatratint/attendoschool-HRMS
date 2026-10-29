@@ -37,7 +37,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     description: "Build great things",
     responsibilities: "Code",
     requirements: "5 years React",
-    currency: "USD",
+    currency: "INR",
     openings: 1,
     status: "open",
     isPublished: true,

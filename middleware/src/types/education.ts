@@ -199,6 +199,7 @@ export interface PayrollRun {
   name: string; // e.g. "October 2026 Faculty & Staff Payroll"
   month: number; // 1 - 12
   year: number;
+  currency: string; // e.g. "INR"
   status: "draft" | "review" | "approved" | "paid";
   totalGross: number;
   totalDeductions: number;
@@ -218,6 +219,7 @@ export interface Payslip {
   employeeName: string;
   month: number;
   year: number;
+  currency: string; // e.g. "INR"
   basicSalary: number;
   allowances: {
     da: number; // Dearness Allowance

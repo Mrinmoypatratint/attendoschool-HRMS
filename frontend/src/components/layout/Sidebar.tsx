@@ -27,7 +27,7 @@ import {
   Calendar,
   BookOpen,
   UserCheck,
-  DollarSign,
+  IndianRupee,
   Award
 } from "lucide-react";
 import { useAuth } from "../../features/auth/context/AuthContext";
@@ -71,7 +71,7 @@ export function Sidebar() {
     { label: "Job Requisitions", href: "/jobs", icon: FileText, permission: "jobs.view" },
     { label: "Recruitment Pipeline", href: "/pipeline", icon: KanbanSquare, permission: "candidates.view" },
     { label: "Leave Management", href: "/leave", icon: CalendarDays, permission: "leave.view" },
-    { label: "Payroll & Salaries", href: "/payroll", icon: DollarSign, permission: "payroll.view" },
+    { label: "Payroll & Salaries", href: "/payroll", icon: IndianRupee, permission: "payroll.view" },
     { label: "Appraisals & FDP", href: "/performance", icon: Award, permission: "performance.view" },
     { label: "Document Vault", href: "/documents", icon: FolderLock, permission: "documents.view" },
     { label: "Users & Invites", href: "/users", icon: Users, permission: "users.view" },

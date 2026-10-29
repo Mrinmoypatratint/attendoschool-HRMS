@@ -329,7 +329,7 @@ export const EmployeeService = {
       const map: Record<string, { salary: number; currency: string }> = {};
       snap.forEach((d) => {
         const c = d.data() as EmployeeCompensation;
-        map[c.employeeId] = { salary: c.salary, currency: c.currency || "USD" };
+        map[c.employeeId] = { salary: c.salary, currency: c.currency || "INR" };
       });
       return map;
     } catch {
@@ -356,7 +356,7 @@ export const EmployeeService = {
     employeeId: string,
     tenantId: string,
     salary: number,
-    currency: string = "USD",
+    currency: string = "INR",
     callerInfo?: { uid: string; email: string }
   ): Promise<void> {
     const comp: EmployeeCompensation = {

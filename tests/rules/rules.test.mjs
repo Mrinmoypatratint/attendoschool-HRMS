@@ -50,7 +50,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
 
   await setDoc(doc(d, "employees", "empRecA"),  { id: "empRecA",  tenantId: A, userId: "empA",  firstName: "Em", lastName: "A" });
   await setDoc(doc(d, "employees", "empRecA2"), { id: "empRecA2", tenantId: A, userId: "empA2", firstName: "Em", lastName: "A2" });
-  await setDoc(doc(d, "employeeCompensation", "empRecA"), { id: "empRecA", tenantId: A, employeeId: "empRecA", salary: 99999, currency: "USD", updatedAt: 1 });
+  await setDoc(doc(d, "employeeCompensation", "empRecA"), { id: "empRecA", tenantId: A, employeeId: "empRecA", salary: 99999, currency: "INR", updatedAt: 1 });
   await setDoc(doc(d, "candidates", "candA"),   { id: "candA", tenantId: A, jobId: "jobOpenA", firstName: "C", lastName: "A", email: "c@t.com" });
   await setDoc(doc(d, "jobs", "jobOpenA"),  { id: "jobOpenA",  tenantId: A, isPublished: true,  status: "open" });
   await setDoc(doc(d, "jobs", "jobDraftA"), { id: "jobDraftA", tenantId: A, isPublished: false, status: "draft" });

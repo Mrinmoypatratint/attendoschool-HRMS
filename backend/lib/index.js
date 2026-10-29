@@ -1667,7 +1667,7 @@ exports.onOfferUpdated = functions
                 jobTitle: after.jobTitle || "the role",
                 organizationName,
                 salary: after.salary || 0,
-                currency: after.currency || "USD",
+                currency: after.currency || "INR",
                 startDate: after.startDate || "TBD",
                 viewUrl: `${(0, mailer_1.getAppUrl)()}/login`,
             });

@@ -24,7 +24,7 @@ import {
   GraduationCap,
   BookOpen,
   UserCheck,
-  DollarSign,
+  IndianRupee,
   Award,
   CheckCircle2
 } from "lucide-react";
@@ -298,7 +298,7 @@ export function DashboardPage() {
             to="/payroll"
             className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
           >
-            <div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><DollarSign size={18} /></div>
+            <div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><IndianRupee size={18} /></div>
             <span className="text-xs font-semibold text-slate-700">Payroll Runs</span>
           </Link>
         </div>

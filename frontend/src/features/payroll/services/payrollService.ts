@@ -104,38 +104,38 @@ export const PayrollService = {
     // 2. Compute salary structure for each employee
     for (const emp of eligibleEmployees) {
       // Attempt to load employee compensation
-      let monthlyBase = 4500;
+      let monthlyBase = 45000;
       try {
         const comp = await EmployeeService.getCompensation(emp.id);
         if (comp?.salary) {
           monthlyBase = Math.round(comp.salary / 12);
         }
       } catch {
-        // Fall back to default role/grade estimation if compensation record not populated
-        monthlyBase = emp.teachingStatus === "teaching" ? 5200 : 3800;
+        // Fall back to default role/grade estimation in INR
+        monthlyBase = emp.teachingStatus === "teaching" ? 55000 : 38000;
       }
 
-      // Institutional Salary Breakdown Formulas:
+      // Institutional Salary Breakdown Formulas (in INR):
       // Basic = 50% of monthly base
       const basic = Math.round(monthlyBase * 0.5);
       // Dearness Allowance (DA) = 20% of Basic
       const da = Math.round(basic * 0.2);
       // House Rent Allowance (HRA) = 25% of Basic
       const hra = Math.round(basic * 0.25);
-      // Transport Allowance (TA)
-      const ta = 250;
+      // Transport Allowance (TA) - standard INR 2,000
+      const ta = 2000;
       // Special / Academic Allowance = Remaining balance
       const special = Math.max(0, monthlyBase - (basic + da + hra + ta));
 
       const gross = basic + da + hra + ta + special;
 
-      // Statutory Deductions:
+      // Statutory Deductions (India):
       // Provident Fund (PF) = 12% of Basic
       const pf = Math.round(basic * 0.12);
       // ESI = 0.75% of Gross
       const esi = Math.round(gross * 0.0075);
-      // Professional Tax (flat standard)
-      const pt = 25;
+      // Professional Tax (standard INR 200/month)
+      const pt = 200;
       // Tax Deducted at Source (TDS approx 5%)
       const tds = Math.round(gross * 0.05);
 
@@ -155,6 +155,7 @@ export const PayrollService = {
         employeeName: `${emp.firstName} ${emp.lastName}`,
         month: params.month,
         year: params.year,
+        currency: "INR",
         basicSalary: basic,
         allowances: {
           da,
@@ -190,6 +191,7 @@ export const PayrollService = {
       name: params.name,
       month: params.month,
       year: params.year,
+      currency: "INR",
       status: "review",
       totalGross,
       totalDeductions,
@@ -209,7 +211,7 @@ export const PayrollService = {
         action: "create",
         resource: "payroll",
         resourceId: runId,
-        details: `Generated payroll run: ${params.name} (${eligibleEmployees.length} staff, Net: $${totalNet.toLocaleString()})`,
+        details: `Generated payroll run: ${params.name} (${eligibleEmployees.length} staff, Net: ₹${totalNet.toLocaleString('en-IN')})`,
       });
     }
 
