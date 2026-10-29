@@ -131,6 +131,9 @@ export function LoginPage() {
         if (isMounted) {
           setTenants(list);
           setTenantsLoaded(true);
+          if (emailInput) {
+            handleEmailLookup(emailInput, list);
+          }
         }
       } catch (err) {
         console.error("Failed to load organizations:", err);
@@ -143,19 +146,17 @@ export function LoginPage() {
     };
   }, []);
 
-  // Watch email field to trigger instant identification
-  const watchedEmail = loginForm.watch("email");
+  const [emailInput, setEmailInput] = useState("");
 
-  useEffect(() => {
-    if (!watchedEmail || watchedEmail.trim() === "") {
+  const handleEmailLookup = (emailStr: string, currentTenants = tenants) => {
+    const emailTrimmed = (emailStr || "").toLowerCase().trim();
+    if (!emailTrimmed) {
       setEmailLookupStatus("idle");
       setMatchedTenant(null);
       setMatchedMember(null);
       return;
     }
 
-    const emailTrimmed = watchedEmail.toLowerCase().trim();
-    // Validate format before checking
     const isValidFormat = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed);
     if (!isValidFormat) {
       setEmailLookupStatus("idle");
@@ -164,29 +165,13 @@ export function LoginPage() {
       return;
     }
 
-    setEmailLookupStatus("checking");
-
-    // Scan tenants for matching member or domain
     let foundT: any = null;
     let foundM: any = null;
 
-    for (const t of tenants) {
+    for (const t of currentTenants) {
       if (t.memberDirectory && t.memberDirectory[emailTrimmed]) {
         foundT = t;
         foundM = t.memberDirectory[emailTrimmed];
-        break;
-      }
-      // Also match institutional email domain if available
-      const parts = emailTrimmed.split("@");
-      const domain = parts.length > 1 ? parts[1] : "";
-      if (domain && t.website && t.website.includes(domain)) {
-        foundT = t;
-        const localPart = parts[0] || "faculty";
-        foundM = {
-          displayName: localPart.replace(".", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
-          designation: "Faculty / Staff Member",
-          lastLoginAt: Date.now() - 3600000,
-        };
         break;
       }
     }
@@ -201,14 +186,22 @@ export function LoginPage() {
       setMatchedMember(null);
       setEmailLookupStatus("not_found");
     }
-  }, [watchedEmail, tenants]);
+  };
+
+  const onEmailChange = (val: string) => {
+    setEmailInput(val);
+    loginForm.setValue("email", val, { shouldValidate: true });
+    handleEmailLookup(val);
+  };
 
   // Autofill test account helper
   const fillTestAccount = (email: string) => {
     setActiveTab("login");
     setError(null);
+    setEmailInput(email);
     loginForm.setValue("email", email, { shouldValidate: true, shouldDirty: true });
     loginForm.setValue("password", MASTER_PASSWORD, { shouldValidate: true, shouldDirty: true });
+    handleEmailLookup(email);
   };
 
   const onLoginSubmit = async (data: LoginForm) => {
@@ -449,9 +442,10 @@ export function LoginPage() {
                   <input
                     id="email-login"
                     type="email"
+                    value={emailInput}
+                    onChange={(e) => onEmailChange(e.target.value)}
                     placeholder="e.g. principal@greenwood.edu.in"
                     autoComplete="email"
-                    {...loginForm.register("email")}
                     className={`w-full rounded-2xl border px-4 py-3 text-sm font-medium text-slate-800 placeholder-slate-400 outline-none transition-all shadow-xs ${
                       emailLookupStatus === "found"
                         ? "border-emerald-500 ring-2 ring-emerald-100 bg-emerald-50/20"
