@@ -32,6 +32,15 @@ import { CareersPage } from "./features/recruitment/pages/CareersPage";
 import { LeaveManagementPage } from "./features/leave/pages/LeaveManagementPage";
 import { DocumentsPage } from "./features/documents/pages/DocumentsPage";
 
+// Educational Institution HRMS pages
+import { CampusesListPage } from "./features/campuses/pages/CampusesListPage";
+import { AttendancePage } from "./features/attendance/pages/AttendancePage";
+import { AcademicCalendarPage } from "./features/calendar/pages/AcademicCalendarPage";
+import { WorkloadPage } from "./features/workload/pages/WorkloadPage";
+import { SubstituteManagementPage } from "./features/workload/pages/SubstituteManagementPage";
+import { PayrollPage } from "./features/payroll/pages/PayrollPage";
+import { PerformancePage } from "./features/performance/pages/PerformancePage";
+
 // Common pages
 import { NotFoundPage } from "./features/common/pages/NotFoundPage";
 import { LoadingScreen } from "./components/ui/LoadingScreen";
@@ -60,6 +69,14 @@ export default function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route 
+            path="/campuses" 
+            element={
+              <ProtectedRoute permission="campuses.view">
+                <CampusesListPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
             path="/employees" 
             element={
               <ProtectedRoute permission="employees.view">
@@ -74,6 +91,38 @@ export default function App() {
                 <EmployeeProfilePage />
               </ProtectedRoute>
             }
+          />
+          <Route 
+            path="/attendance" 
+            element={
+              <ProtectedRoute permission="attendance.view">
+                <AttendancePage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/calendar" 
+            element={
+              <ProtectedRoute permission="academic_calendar.view">
+                <AcademicCalendarPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/workload" 
+            element={
+              <ProtectedRoute permission="workload.view">
+                <WorkloadPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/substitutes" 
+            element={
+              <ProtectedRoute permission="substitutes.view">
+                <SubstituteManagementPage />
+              </ProtectedRoute>
+            } 
           />
           <Route 
             path="/teams" 
@@ -104,6 +153,22 @@ export default function App() {
             element={
               <ProtectedRoute permission="leave.view">
                 <LeaveManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll"
+            element={
+              <ProtectedRoute permission="payroll.view">
+                <PayrollPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/performance"
+            element={
+              <ProtectedRoute permission="performance.view">
+                <PerformancePage />
               </ProtectedRoute>
             }
           />

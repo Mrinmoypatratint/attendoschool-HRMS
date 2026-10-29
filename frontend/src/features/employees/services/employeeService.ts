@@ -149,8 +149,8 @@ export const EmployeeService = {
    */
   async getEmployees(
     tenantId: string, 
-    dataAccessLevel: DataAccessLevel, 
-    callerEmployee: Employee | null
+    dataAccessLevel: DataAccessLevel = "all", 
+    callerEmployee: Employee | null = null
   ): Promise<Employee[]> {
     // 1. Fetch all employees in tenant first (to apply filter locally based on relations)
     // This is safe since we query by tenantId first, satisfying tenant isolation.
@@ -189,6 +189,12 @@ export const EmployeeService = {
           e.managerId === callerEmployee.id ||
           (callerEmployee.managerId && e.managerId === callerEmployee.managerId)
         );
+
+      case "campus":
+        // Can see anyone inside the same campus / branch
+        return callerEmployee.campusId 
+          ? allEmployees.filter(e => e.campusId === callerEmployee.campusId)
+          : allEmployees;
 
       case "department":
         // Can see anyone inside the same department

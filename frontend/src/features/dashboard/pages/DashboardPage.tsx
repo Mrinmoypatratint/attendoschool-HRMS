@@ -1,19 +1,39 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
-import type { Tenant } from "@hrms/middleware";
+import type { Tenant, UserProfile, AcademicSession } from "@hrms/middleware";
 import { db } from "../../../lib/firebase";
 import { useAuth } from "../../auth/context/AuthContext";
 import { useHasPermission } from "../../rbac/hooks/usePermissions";
-import { Users, Shield, Building2, MapPin, Clock, Briefcase, X, Mail, Calendar, Landmark, Info } from "lucide-react";
+import { EmployeeService } from "../../employees/services/employeeService";
+import { CampusService } from "../../campuses/services/campusService";
+import { AcademicCalendarService } from "../../calendar/services/academicCalendarService";
+import { AttendanceService } from "../../attendance/services/attendanceService";
+import { 
+  Users, 
+  Shield, 
+  Building2, 
+  MapPin, 
+  Clock, 
+  Briefcase, 
+  X, 
+  Mail, 
+  Calendar, 
+  Landmark, 
+  Info,
+  GraduationCap,
+  BookOpen,
+  UserCheck,
+  DollarSign,
+  Award,
+  CheckCircle2
+} from "lucide-react";
 import { Skeleton } from "../../../components/ui/Skeleton";
-import type { UserProfile } from "@hrms/middleware";
 import { formatDate } from "../../../lib/utils";
 
 export function DashboardPage() {
   const { activeTenant, profile } = useAuth();
   const hasPermission = useHasPermission();
-  // The member directory widgets surface data from the `users` collection, so
-  // they're only shown to roles granted `users.view` in the permission matrix.
   const canViewUsers = hasPermission("users.view");
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [customRoles, setCustomRoles] = useState<any[]>([]);
@@ -21,6 +41,14 @@ export function DashboardPage() {
   const [tenantNames, setTenantNames] = useState<Record<string, string>>({});
   const [loadingTenants, setLoadingTenants] = useState(false);
   const [openJobsCount, setOpenJobsCount] = useState(0);
+
+  // Educational institution metrics
+  const [teachingStaffCount, setTeachingStaffCount] = useState(0);
+  const [nonTeachingStaffCount, setNonTeachingStaffCount] = useState(0);
+  const [campusCount, setCampusCount] = useState(0);
+  const [currentSessionName, setCurrentSessionName] = useState<string>("Not Configured");
+  const [todayAttendanceCount, setTodayAttendanceCount] = useState<number>(0);
+
   const [loading, setLoading] = useState(true);
 
   const getRoleLabel = (roleKey: string) => {
@@ -93,39 +121,56 @@ export function DashboardPage() {
     const fetchDashboardData = async () => {
       setLoading(true);
       try {
-        // Fetch members
-        const q = query(
-          collection(db, "users"),
-          where(`tenants.${profile.activeTenantId}.status`, "in", ["active", "invited", "disabled"])
-        );
-        const snap = await getDocs(q);
-        const list: UserProfile[] = [];
-        snap.forEach((docSnap) => {
-          list.push(docSnap.data() as UserProfile);
-        });
-        setMembers(list);
+        const tenantId = profile?.activeTenantId;
+        if (!tenantId) {
+          setLoading(false);
+          return;
+        }
+        const todayStr = new Date().toISOString().slice(0, 10);
 
-        // Fetch custom roles
-        const rq = query(
-          collection(db, "roles"),
-          where("tenantId", "==", profile.activeTenantId)
-        );
-        const rSnap = await getDocs(rq);
+        // Fetch users, roles, jobs, employees, campuses, and session in parallel
+        const [uSnap, rSnap, jSnap, empList, campList, curSession, attMetrics] = await Promise.all([
+          getDocs(query(
+            collection(db, "users"),
+            where(`tenants.${tenantId}.status`, "in", ["active", "invited", "disabled"])
+          )),
+          getDocs(query(collection(db, "roles"), where("tenantId", "==", tenantId))),
+          getDocs(query(
+            collection(db, "jobs"),
+            where("tenantId", "==", tenantId),
+            where("isPublished", "==", true),
+            where("status", "==", "open")
+          )),
+          EmployeeService.getEmployees(tenantId).catch(() => []),
+          CampusService.getCampuses(tenantId).catch(() => []),
+          AcademicCalendarService.getCurrentSession(tenantId).catch(() => null),
+          AttendanceService.getDailyMetrics(tenantId, todayStr).catch(() => ({ present: 0, totalMarked: 0 })),
+        ]);
+
+        const uList: UserProfile[] = [];
+        uSnap.forEach((docSnap) => uList.push(docSnap.data() as UserProfile));
+        setMembers(uList);
+
         const rList: any[] = [];
-        rSnap.forEach((docSnap) => {
-          rList.push(docSnap.data());
-        });
+        rSnap.forEach((docSnap) => rList.push(docSnap.data()));
         setCustomRoles(rList);
 
-        // Fetch open jobs count (published + open status)
-        const jq = query(
-          collection(db, "jobs"),
-          where("tenantId", "==", profile.activeTenantId),
-          where("isPublished", "==", true),
-          where("status", "==", "open")
-        );
-        const jSnap = await getDocs(jq);
         setOpenJobsCount(jSnap.size);
+
+        // Compute staff categories
+        let teaching = 0;
+        let nonTeaching = 0;
+        empList.forEach((e) => {
+          if (e.teachingStatus === "teaching" || e.staffCategory === "teaching") teaching++;
+          else nonTeaching++;
+        });
+        setTeachingStaffCount(teaching);
+        setNonTeachingStaffCount(nonTeaching);
+
+        setCampusCount(campList.length);
+        if (curSession) setCurrentSessionName(curSession.name);
+        setTodayAttendanceCount(attMetrics.present || 0);
+
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
       } finally {
@@ -140,7 +185,8 @@ export function DashboardPage() {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-1/4" />
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-4">
+          <Skeleton className="h-28 rounded-2xl" />
           <Skeleton className="h-28 rounded-2xl" />
           <Skeleton className="h-28 rounded-2xl" />
           <Skeleton className="h-28 rounded-2xl" />
@@ -160,44 +206,101 @@ export function DashboardPage() {
           Hello, {profile?.displayName || "User"}!
         </h1>
         <p className="text-sm text-slate-500">
-          Here's what is happening at <strong className="text-slate-700">{activeTenant?.name}</strong> today.
+          Educational Institution HR & Operations overview for <strong className="text-slate-700">{activeTenant?.name}</strong>.
         </p>
       </div>
 
-      {/* Quick Stats Grid */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        {canViewUsers && (
-          <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Users size={24} />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-slate-900">{members.length}</div>
-              <div className="text-xs font-semibold text-slate-500">Team Members</div>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-50 text-green-600">
-            <Shield size={24} />
+      {/* Institutional KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 shrink-0">
+            <GraduationCap size={24} />
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">
-              {Object.keys(SYSTEM_ROLES_META).length}
-            </div>
-            <div className="text-xs font-semibold text-slate-500">Standard Roles</div>
+            <div className="text-2xl font-bold text-slate-900">{teachingStaffCount + nonTeachingStaffCount}</div>
+            <div className="text-xs font-semibold text-slate-500">Total Staff ({teachingStaffCount} Faculty)</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-            <Briefcase size={24} />
+        <div className="flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-50 text-purple-600 shrink-0">
+            <Building2 size={24} />
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">{openJobsCount}</div>
-            <div className="text-xs font-semibold text-slate-500">Open Jobs</div>
+            <div className="text-2xl font-bold text-slate-900">{campusCount}</div>
+            <div className="text-xs font-semibold text-slate-500">Campuses / Branches</div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 shrink-0">
+            <CheckCircle2 size={24} />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-slate-900">{todayAttendanceCount}</div>
+            <div className="text-xs font-semibold text-slate-500">Present Today</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-600 shrink-0">
+            <Calendar size={24} />
+          </div>
+          <div className="truncate">
+            <div className="text-base font-bold text-slate-900 truncate">{currentSessionName}</div>
+            <div className="text-xs font-semibold text-slate-500">Active Academic Session</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Launchpad for Educational Operations */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
+        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-3">
+          Institutional Operations & Quick Launchpad
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+          <Link
+            to="/campuses"
+            className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
+          >
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Building2 size={18} /></div>
+            <span className="text-xs font-semibold text-slate-700">Campuses</span>
+          </Link>
+          <Link
+            to="/attendance"
+            className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
+          >
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Clock size={18} /></div>
+            <span className="text-xs font-semibold text-slate-700">Attendance</span>
+          </Link>
+          <Link
+            to="/calendar"
+            className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
+          >
+            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Calendar size={18} /></div>
+            <span className="text-xs font-semibold text-slate-700">Calendar & Terms</span>
+          </Link>
+          <Link
+            to="/workload"
+            className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
+          >
+            <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><BookOpen size={18} /></div>
+            <span className="text-xs font-semibold text-slate-700">Faculty Workload</span>
+          </Link>
+          <Link
+            to="/substitutes"
+            className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
+          >
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><UserCheck size={18} /></div>
+            <span className="text-xs font-semibold text-slate-700">Substitutes</span>
+          </Link>
+          <Link
+            to="/payroll"
+            className="p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors flex flex-col items-center text-center gap-2"
+          >
+            <div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><DollarSign size={18} /></div>
+            <span className="text-xs font-semibold text-slate-700">Payroll Runs</span>
+          </Link>
         </div>
       </div>
 
@@ -399,9 +502,15 @@ export function DashboardPage() {
 }
 
 const SYSTEM_ROLES_META = {
-  super_admin: "Super Admin",
-  org_admin: "Org Admin",
+  super_admin: "Platform Super Admin",
+  org_admin: "Institution Admin",
+  principal: "Principal / Director",
+  campus_admin: "Campus Administrator",
   hr_manager: "HR Manager",
+  hod: "Head of Department (HOD)",
+  teacher: "Teaching Faculty / Professor",
+  non_teaching: "Non-Teaching Staff",
+  payroll_officer: "Payroll Officer",
   recruiter: "Recruiter",
   employee: "Employee",
 };

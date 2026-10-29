@@ -35,6 +35,8 @@ const env = await initializeTestEnvironment({
   firestore: { rules, host, port },
 });
 
+await env.clearFirestore();
+
 const A = "tenantA", B = "tenantB";
 const ts = (role, tenant) => ({ tenants: { [tenant]: { role, status: "active" } }, activeTenantId: tenant });
 

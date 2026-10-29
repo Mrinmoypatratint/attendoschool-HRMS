@@ -49,11 +49,24 @@ export interface ApprovalWorkflow {
   status: ApprovalDecision; // overall workflow status
 }
 
-/** Default ordered pipeline stages applied to a new job. */
+/** Default ordered pipeline stages applied to a new standard job. */
 export const DEFAULT_PIPELINE_STAGES = [
   "Applied",
   "Screening",
   "Interview",
+  "Offer",
+  "Hired",
+  "Rejected",
+] as const;
+
+/** Extended pipeline stages for institutional faculty & academic recruitment. */
+export const DEFAULT_FACULTY_PIPELINE_STAGES = [
+  "Applied",
+  "Screening",
+  "Eligibility Verification",
+  "Teaching Demonstration",
+  "Interview Committee",
+  "Document Verification",
   "Offer",
   "Hired",
   "Rejected",
@@ -74,8 +87,8 @@ export interface Job {
   description: string;
   responsibilities: string;
   requirements: string;
-  salaryMin?: number;
-  salaryMax?: number;
+  salaryMin?: number | undefined;
+  salaryMax?: number | undefined;
   currency: string;
   openings: number;
   status: JobStatus;
@@ -84,7 +97,14 @@ export interface Job {
   /** Ordered list of pipeline stage names used by this job's candidates. */
   pipelineStages: string[];
   approval: ApprovalWorkflow;
-  hiringManagerId?: string;
+  hiringManagerId?: string | undefined;
+  /** Educational Institution Extensions */
+  staffCategory?: "teaching" | "non_teaching" | undefined;
+  campusId?: string | undefined;
+  subjectSpecialization?: string | undefined;
+  minimumQualification?: string | undefined;
+  teachingExperienceRequiredYears?: number | undefined;
+  academicSessionId?: string | undefined;
   createdBy: string;
   createdAt: number;
   updatedAt: number;

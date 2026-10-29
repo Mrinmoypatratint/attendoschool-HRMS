@@ -9,6 +9,7 @@ import { ErrorState } from "../../../components/ui/ErrorState";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { filterJobs, isCurrentApprover, getCurrentApprover, type JobFilters } from "../utils/recruitment";
 import { fetchTenantMembers, jobStatusClass, titleCase, formatDate } from "../components/recruitmentUi";
+import { CampusService } from "../../campuses/services/campusService";
 import type {
   Job,
   JobStatus,
@@ -16,8 +17,9 @@ import type {
   UserProfile,
   EmploymentType,
   WorkMode,
+  Campus,
 } from "@hrms/middleware";
-import { DEFAULT_PIPELINE_STAGES } from "@hrms/middleware";
+import { DEFAULT_PIPELINE_STAGES, DEFAULT_FACULTY_PIPELINE_STAGES } from "@hrms/middleware";
 import {
   Briefcase,
   Plus,
@@ -47,6 +49,7 @@ export function JobsListPage() {
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +65,10 @@ export function JobsListPage() {
   const [form, setForm] = useState({
     title: "",
     departmentId: "",
+    campusId: "",
+    staffCategory: "teaching" as "teaching" | "non_teaching",
+    subjectSpecialization: "",
+    minimumQualification: "",
     location: "",
     workMode: "remote" as WorkMode,
     employmentType: "full_time" as EmploymentType,
@@ -92,18 +99,21 @@ export function JobsListPage() {
         fetchTenantMembers(tenantId),
       ]);
 
-      // Departments are auxiliary metadata (names + the requisition's department
-      // picker). A role with jobs.view but without departments.view should still
-      // be able to use this page, so a denied departments read is non-fatal.
+      // Departments & Campuses auxiliary metadata
       let depts: Department[] = [];
+      let camps: Campus[] = [];
       try {
-        depts = await EmployeeService.getDepartments(tenantId);
-      } catch (deptErr) {
-        console.warn("[JobsListPage] departments unavailable (missing departments.view?)", deptErr);
+        [depts, camps] = await Promise.all([
+          EmployeeService.getDepartments(tenantId),
+          CampusService.getCampuses(tenantId),
+        ]);
+      } catch (auxErr) {
+        console.warn("[JobsListPage] departments/campuses auxiliary read error", auxErr);
       }
 
       setJobs(jobsData);
       setDepartments(depts);
+      setCampuses(camps);
       setMembers(mem);
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Failed to load jobs."));
@@ -118,12 +128,28 @@ export function JobsListPage() {
 
   const filtered = useMemo(() => filterJobs(jobs, filters), [jobs, filters]);
   const deptName = (id: string) => departments.find((d) => d.id === id)?.name ?? "—";
+  const campName = (id?: string) => (id ? campuses.find((c) => c.id === id)?.name ?? "—" : "All Campuses");
 
   const resetForm = () => {
     setForm({
-      title: "", departmentId: departments[0]?.id || "", location: "", workMode: "remote",
-      employmentType: "full_time", openings: 1, salaryMin: "", salaryMax: "", currency: "USD",
-      description: "", responsibilities: "", requirements: "", requireApproval: false, approverIds: [],
+      title: "",
+      departmentId: departments[0]?.id || "",
+      campusId: campuses[0]?.id || "",
+      staffCategory: "teaching",
+      subjectSpecialization: "",
+      minimumQualification: "",
+      location: "",
+      workMode: "remote",
+      employmentType: "full_time",
+      openings: 1,
+      salaryMin: "",
+      salaryMax: "",
+      currency: "USD",
+      description: "",
+      responsibilities: "",
+      requirements: "",
+      requireApproval: false,
+      approverIds: [],
       stages: [...DEFAULT_PIPELINE_STAGES],
     });
   };
@@ -139,6 +165,10 @@ export function JobsListPage() {
     setForm({
       title: job.title,
       departmentId: job.departmentId,
+      campusId: job.campusId || "",
+      staffCategory: job.staffCategory || "teaching",
+      subjectSpecialization: job.subjectSpecialization || "",
+      minimumQualification: job.minimumQualification || "",
       location: job.location,
       workMode: job.workMode,
       employmentType: job.employmentType,
@@ -167,6 +197,10 @@ export function JobsListPage() {
       const base = {
         title: form.title.trim(),
         departmentId: form.departmentId,
+        campusId: form.campusId || undefined,
+        staffCategory: form.staffCategory,
+        subjectSpecialization: form.subjectSpecialization || undefined,
+        minimumQualification: form.minimumQualification || undefined,
         location: form.location.trim(),
         workMode: form.workMode,
         employmentType: form.employmentType,
@@ -366,10 +400,26 @@ export function JobsListPage() {
                       <input type="checkbox" checked={selected.has(job.id)} onChange={() => toggleSelect(job.id)} className="rounded" />
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-slate-900">{job.title}</div>
-                      <div className="text-xs text-slate-500">{job.location} · {titleCase(job.workMode)}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-900">{job.title}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          job.staffCategory === "teaching"
+                            ? "bg-purple-50 text-purple-700 border-purple-200"
+                            : "bg-slate-100 text-slate-700 border-slate-200"
+                        }`}>
+                          {job.staffCategory === "teaching" ? "Faculty" : "Staff"}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {campName(job.campusId)} · {job.location} · {titleCase(job.workMode)}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{deptName(job.departmentId)}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      <div>{deptName(job.departmentId)}</div>
+                      {job.subjectSpecialization && (
+                        <div className="text-xs text-purple-600 font-medium">{job.subjectSpecialization}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-slate-600">{titleCase(job.employmentType)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${jobStatusClass(job.status)}`}>
@@ -444,11 +494,53 @@ export function JobsListPage() {
                 <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Staff Category</label>
+                <select
+                  value={form.staffCategory}
+                  onChange={(e) => setForm((f) => ({ ...f, staffCategory: e.target.value as "teaching" | "non_teaching" }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white"
+                >
+                  <option value="teaching">Teaching Faculty</option>
+                  <option value="non_teaching">Non-Teaching Staff</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Campus / Branch</label>
+                <select
+                  value={form.campusId}
+                  onChange={(e) => setForm((f) => ({ ...f, campusId: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">All Campuses / Main</option>
+                  {campuses.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Department / Faculty</label>
                 <select value={form.departmentId} onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white">
                   <option value="">—</option>
                   {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Subject Specialization</label>
+                <input
+                  placeholder="e.g. Pure Mathematics, AI / ML, Literature"
+                  value={form.subjectSpecialization}
+                  onChange={(e) => setForm((f) => ({ ...f, subjectSpecialization: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Minimum Degree Required</label>
+                <input
+                  placeholder="e.g. Ph.D., Master's, B.Ed."
+                  value={form.minimumQualification}
+                  onChange={(e) => setForm((f) => ({ ...f, minimumQualification: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Location</label>
@@ -496,15 +588,24 @@ export function JobsListPage() {
               </div>
 
               <div className="sm:col-span-2 rounded-xl border border-slate-200 p-3">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <label className="text-sm font-semibold text-slate-700">Pipeline Stages</label>
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, stages: [...f.stages, ""] }))}
-                    className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
-                  >
-                    + Add stage
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, stages: [...DEFAULT_FACULTY_PIPELINE_STAGES] }))}
+                      className="text-xs font-semibold text-purple-600 hover:underline cursor-pointer"
+                    >
+                      Use Academic / Faculty Stages
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, stages: [...f.stages, ""] }))}
+                      className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      + Add stage
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   {form.stages.map((s, i) => (

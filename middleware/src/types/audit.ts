@@ -47,7 +47,14 @@ export interface AuditLog {
     | "leave_policy"
     | "leave_request"
     | "leave_balance"
-    | "holiday_calendar";
+    | "holiday_calendar"
+    | "campus"
+    | "attendance"
+    | "timetable"
+    | "substitute"
+    | "payroll"
+    | "performance"
+    | "training";
   /** Identifier of the affected resource document. */
   resourceId: string;
   /** Human-readable description of the change. */

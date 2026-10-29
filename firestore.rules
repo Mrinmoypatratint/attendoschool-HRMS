@@ -46,47 +46,66 @@ service cloud.firestore {
         : defaults;
     }
 
+    function checkHrPermission(tenantId, permission) {
+      let overridePath = /databases/$(database)/documents/roleOverrides/$(tenantId + '_hr_manager');
+      return exists(overridePath)
+        ? permission in get(overridePath).data.get('permissions', [])
+        : !(permission in ['roles.delete', 'payroll.approve']);
+    }
+
+    function checkRecruiterPermission(tenantId, permission) {
+      let overridePath = /databases/$(database)/documents/roleOverrides/$(tenantId + '_recruiter');
+      return exists(overridePath)
+        ? permission in get(overridePath).data.get('permissions', [])
+        : (permission in [
+            'users.view', 'departments.view', 'campuses.view',
+            'jobs.view', 'jobs.create', 'jobs.update', 'jobs.delete',
+            'candidates.view', 'candidates.create', 'candidates.update', 'candidates.delete', 'candidates.export',
+            'employees.view'
+          ]);
+    }
+
+    function checkEmployeePermission(tenantId, permission) {
+      let overridePath = /databases/$(database)/documents/roleOverrides/$(tenantId + '_employee');
+      return exists(overridePath)
+        ? permission in get(overridePath).data.get('permissions', [])
+        : (permission in [
+            'users.view', 'departments.view', 'teams.view', 'jobs.view',
+            'employees.view', 'attendance.view', 'attendance.mark',
+            'academic_calendar.view', 'leave.view', 'leave.create',
+            'documents.view'
+          ]);
+    }
+
+    function checkEduRolePermission(tenantId, role, permission) {
+      let overridePath = /databases/$(database)/documents/roleOverrides/$(tenantId + '_' + role);
+      return exists(overridePath)
+        ? permission in get(overridePath).data.get('permissions', [])
+        : (
+            (role in ['principal', 'campus_admin', 'hod'] && !(permission in ['payroll.process'])) ||
+            (role == 'payroll_officer' && (permission in ['users.view', 'departments.view', 'campuses.view', 'employees.view', 'attendance.view', 'leave.view', 'payroll.view', 'payroll.process', 'payroll.approve', 'reports.view', 'reports.export'])) ||
+            (role in ['teacher', 'non_teaching'] && (permission in [
+              'users.view', 'departments.view', 'campuses.view', 'employees.view',
+              'attendance.view', 'attendance.mark', 'academic_calendar.view',
+              'workload.view', 'substitutes.view', 'leave.view', 'leave.create',
+              'documents.view', 'performance.view', 'training.view'
+            ]))
+          );
+    }
+
     function hasPermission(tenantId, permission) {
-      // Throw-proof role lookup: missing tenant membership yields '' (no match).
       let data = getUserData();
       let tenantsMap = (data != null && 'tenants' in data) ? data.tenants : null;
       let tenantInfo = (tenantsMap != null && tenantId in tenantsMap) ? tenantsMap[tenantId] : null;
       let role = (tenantInfo != null && 'role' in tenantInfo) ? tenantInfo.role : '';
       return isMemberOfTenant(tenantId) && (
-        role == 'super_admin' || 
-        role == 'org_admin' ||
-        // HR Manager permission checks (admins may customize this matrix per-tenant)
-        (role == 'hr_manager' && (permission in rolePermissions(tenantId, 'hr_manager', [
-          'users.view', 'users.create', 'users.update',
-          'departments.view', 'departments.create', 'departments.update', 'departments.delete',
-          'teams.view', 'teams.create', 'teams.update', 'teams.delete',
-          'jobs.view',
-          'candidates.view',
-          'employees.view', 'employees.create', 'employees.update', 'employees.delete',
-          'leave.view', 'leave.create', 'leave.update', 'leave.delete', 'leave.approve',
-          'documents.view', 'documents.create', 'documents.update', 'documents.delete'
-        ]))) ||
-        // Recruiter permission checks (admins may customize this matrix per-tenant)
-        (role == 'recruiter' && (permission in rolePermissions(tenantId, 'recruiter', [
-          'users.view',
-          'departments.view',
-          'jobs.view', 'jobs.create', 'jobs.update', 'jobs.delete',
-          'candidates.view', 'candidates.create', 'candidates.update', 'candidates.delete', 'candidates.export',
-          'employees.view'
-        ]))) ||
-        // Employee permission checks (admins may customize this matrix per-tenant)
-        (role == 'employee' && (permission in rolePermissions(tenantId, 'employee', [
-          'users.view',
-          'departments.view',
-          'teams.view',
-          'jobs.view',
-          'employees.view',
-          'leave.view', 'leave.create',
-          'documents.view'
-        ]))) ||
-        // Custom Role permission checks (read role document from the root collection)
-        (role != 'super_admin' && role != 'org_admin' && role != 'hr_manager' && role != 'recruiter' && role != 'employee' &&
-         exists(/databases/$(database)/documents/roles/$(role)) &&
+        role in ['super_admin', 'org_admin'] ||
+        (role == 'hr_manager' && checkHrPermission(tenantId, permission)) ||
+        (role == 'recruiter' && checkRecruiterPermission(tenantId, permission)) ||
+        (role == 'employee' && checkEmployeePermission(tenantId, permission)) ||
+        (role in ['principal', 'campus_admin', 'hod', 'teacher', 'non_teaching', 'payroll_officer'] &&
+         checkEduRolePermission(tenantId, role, permission)) ||
+        (exists(/databases/$(database)/documents/roles/$(role)) &&
          permission in get(/databases/$(database)/documents/roles/$(role)).data.get('permissions', []))
       );
     }
@@ -395,7 +414,7 @@ service cloud.firestore {
     // their own notifications; the userId/tenantId are immutable on update.
     match /notifications/{id} {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId);
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.get('tenantId', ''));
       allow update: if isAuthenticated()
         && resource.data.userId == request.auth.uid
         && request.resource.data.userId == resource.data.userId
@@ -411,6 +430,135 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId);
       allow update, delete: if false; // Audit logs are immutable
+    }
+
+    // =========================================================================
+    // Educational Institution Collections (Multi-tenant isolated)
+    // =========================================================================
+
+    // Rules for /campuses collection
+    match /campuses/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'campuses.create');
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'campuses.update');
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'campuses.delete');
+    }
+
+    // Rules for /academicSessions collection
+    match /academicSessions/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create, update, delete: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'academic_calendar.manage');
+    }
+
+    // Rules for /staffAttendance collection
+    match /staffAttendance/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'attendance.view') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'attendance.mark') ||
+        hasPermission(request.resource.data.tenantId, 'attendance.manage')
+      );
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'attendance.approve') ||
+        hasPermission(resource.data.tenantId, 'attendance.manage')
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'attendance.manage');
+    }
+
+    // Rules for /attendanceRegularizations collection
+    match /attendanceRegularizations/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'attendance.view') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'attendance.mark') ||
+        isOwnerOfRecord(request.resource.data.employeeId)
+      );
+      allow update: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'attendance.approve') ||
+        hasPermission(resource.data.tenantId, 'attendance.manage')
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'attendance.manage');
+    }
+
+    // Rules for /facultyWorkloads collection
+    match /facultyWorkloads/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'workload.view') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create, update, delete: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'workload.manage');
+    }
+
+    // Rules for /teachingSchedules collection
+    match /teachingSchedules/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create, update, delete: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'workload.manage');
+    }
+
+    // Rules for /substituteAssignments collection
+    match /substituteAssignments/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'substitutes.view') ||
+        isOwnerOfRecord(resource.data.absentEmployeeId) ||
+        isOwnerOfRecord(resource.data.substituteEmployeeId)
+      );
+      allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'substitutes.assign') ||
+        hasPermission(request.resource.data.tenantId, 'substitutes.approve')
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'substitutes.assign');
+    }
+
+    // Rules for /payrollRuns collection
+    match /payrollRuns/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'payroll.view');
+      allow create, update, delete: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'payroll.process');
+    }
+
+    // Rules for /payslips collection
+    match /payslips/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'payroll.view') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create, update, delete: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'payroll.process');
+    }
+
+    // Rules for /performanceReviews collection
+    match /performanceReviews/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'performance.view') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'performance.manage') ||
+        hasPermission(request.resource.data.tenantId, 'performance.review') ||
+        isOwnerOfRecord(request.resource.data.employeeId)
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'performance.manage');
+    }
+
+    // Rules for /trainingPrograms collection
+    match /trainingPrograms/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId);
+      allow create, update, delete: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && hasPermission(request.resource.data.tenantId, 'training.manage');
+    }
+
+    // Rules for /staffTrainingRecords collection
+    match /staffTrainingRecords/{id} {
+      allow read: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && (
+        hasPermission(resource.data.tenantId, 'training.view') ||
+        isOwnerOfRecord(resource.data.employeeId)
+      );
+      allow create, update: if isAuthenticated() && isMemberOfTenant(request.resource.data.tenantId) && (
+        hasPermission(request.resource.data.tenantId, 'training.manage') ||
+        isOwnerOfRecord(request.resource.data.employeeId)
+      );
+      allow delete: if isAuthenticated() && isMemberOfTenant(resource.data.tenantId) && hasPermission(resource.data.tenantId, 'training.manage');
     }
   }
 }

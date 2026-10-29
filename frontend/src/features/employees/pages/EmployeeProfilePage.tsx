@@ -44,12 +44,16 @@ import type {
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, FileText, Users, History,
   Package, Activity, Plus, Trash2, Upload, X, Star, KeyRound, Copy, Check,
+  GraduationCap, School, BookOpen, Award, Edit2
 } from "lucide-react";
+import { CampusService } from "../../campuses/services/campusService";
+import type { Campus } from "@hrms/middleware";
 
-const TABS = ["overview", "contracts", "contacts", "history", "assets", "lifecycle"] as const;
+const TABS = ["overview", "academic", "contracts", "contacts", "history", "assets", "lifecycle"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
+  academic: "Academic & Faculty",
   contracts: "Contracts",
   contacts: "Emergency Contacts",
   history: "Employment History",
@@ -84,6 +88,7 @@ export function EmployeeProfilePage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [manager, setManager] = useState<Employee | null>(null);
   const [contracts, setContracts] = useState<EmployeeContract[]>([]);
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
@@ -164,8 +169,13 @@ export function EmployeeProfilePage() {
         return;
       }
       setEmployee(emp);
-      const [depts] = await Promise.all([EmployeeService.getDepartments(tenantId), loadRecords()]);
+      const [depts, campusList] = await Promise.all([
+        EmployeeService.getDepartments(tenantId),
+        CampusService.getCampuses(tenantId),
+        loadRecords()
+      ]);
       setDepartments(depts);
+      setCampuses(campusList);
       if (emp.managerId) setManager(await EmployeeService.getEmployeeById(emp.managerId));
     } catch (err) {
       setError(getFriendlyErrorMessage(err, "Failed to load employee profile."));
@@ -271,6 +281,9 @@ export function EmployeeProfilePage() {
 
       {tab === "overview" && (
         <OverviewTab employee={employee} deptName={deptName} manager={manager} contracts={contracts} contacts={contacts} assets={assets} />
+      )}
+      {tab === "academic" && (
+        <AcademicTab employee={employee} campuses={campuses} canEdit={canEdit} caller={caller} reload={load} setError={setError} />
       )}
       {tab === "contracts" && (
         <ContractsTab tenantId={tenantId} employeeId={id} canEdit={canEdit} caller={caller} contracts={contracts} reload={loadRecords} setError={setError} />
@@ -777,6 +790,326 @@ function LifecycleTab({
           <select value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value as LifecycleStage })} className={inputCls}>{LIFECYCLE_STAGES.map((s) => <option key={s} value={s}>{tc(s)}</option>)}</select>
           <label className="text-xs font-semibold text-slate-600">Effective date<input type="date" value={f.effectiveDate} onChange={(e) => setF({ ...f, effectiveDate: e.target.value })} className={inputCls} /></label>
           <textarea value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder="Note" rows={2} className={inputCls} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------- Academic & Faculty Tab --------------------------- */
+
+function AcademicTab({
+  employee, campuses, canEdit, caller, reload, setError,
+}: {
+  employee: Employee; campuses: Campus[]; canEdit: boolean; caller: Caller;
+  reload: () => Promise<void>; setError: SetErr;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [f, setF] = useState({
+    staffCategory: employee.staffCategory || "teaching",
+    campusId: employee.campusId || "",
+    facultyGrade: employee.facultyGrade || "",
+    highestQualification: employee.highestQualification || "",
+    specialization: employee.specialization || "",
+    subjectsTaught: (employee.subjectsTaught || []).join(", "),
+    teachingExperienceYears: employee.teachingExperienceYears ?? 0,
+    academicExperienceYears: employee.academicExperienceYears ?? 0,
+    probationEndDate: employee.probationEndDate || "",
+    confirmationDate: employee.confirmationDate || "",
+  });
+
+  const campus = campuses.find((c) => c.id === employee.campusId);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const subjects = f.subjectsTaught
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      await EmployeeService.updateEmployee(
+        employee.id,
+        {
+          staffCategory: f.staffCategory as any,
+          teachingStatus: f.staffCategory === "teaching" ? "teaching" : "non_teaching",
+          campusId: f.campusId || undefined,
+          facultyGrade: f.facultyGrade.trim() || undefined,
+          highestQualification: f.highestQualification.trim() || undefined,
+          specialization: f.specialization.trim() || undefined,
+          subjectsTaught: subjects,
+          teachingExperienceYears: Number(f.teachingExperienceYears) || 0,
+          academicExperienceYears: Number(f.academicExperienceYears) || 0,
+          probationEndDate: f.probationEndDate || undefined,
+          confirmationDate: f.confirmationDate || undefined,
+        },
+        caller
+      );
+      setOpen(false);
+      await reload();
+    } catch (e) {
+      setError(getFriendlyErrorMessage(e, "Failed to update academic details."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Academic & Institutional Credentials</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Faculty designation, degrees, subjects taught, and campus allocation.</p>
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition"
+          >
+            <Edit2 size={14} />
+            Edit Credentials
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Classification Card */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <School className="h-4 w-4 text-blue-600" />
+            <span>Staff Classification & Campus</span>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between py-1.5 border-b border-slate-100">
+              <span className="text-slate-500">Staff Category</span>
+              <span className="font-semibold text-slate-900 capitalize">
+                {employee.staffCategory ? employee.staffCategory.replace("_", " ") : "Teaching Faculty"}
+              </span>
+            </div>
+            <div className="flex justify-between py-1.5 border-b border-slate-100">
+              <span className="text-slate-500">Faculty Grade / Level</span>
+              <span className="font-semibold text-slate-900">
+                {employee.facultyGrade || "Senior Lecturer / Assistant Professor"}
+              </span>
+            </div>
+            <div className="flex justify-between py-1.5 border-b border-slate-100">
+              <span className="text-slate-500">Assigned Campus</span>
+              <span className="font-semibold text-blue-600">
+                {campus ? `${campus.name} (${campus.code})` : employee.workLocation || "Main Campus"}
+              </span>
+            </div>
+            <div className="flex justify-between py-1.5">
+              <span className="text-slate-500">Teaching Status</span>
+              <span className="font-semibold text-slate-900 capitalize">
+                {employee.teachingStatus || (employee.staffCategory === "non_teaching" ? "Non-Teaching" : "Teaching Faculty")}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Qualifications Card */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+            <GraduationCap className="h-4 w-4 text-emerald-600" />
+            <span>Academic Qualifications & Discipline</span>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between py-1.5 border-b border-slate-100">
+              <span className="text-slate-500">Highest Qualification</span>
+              <span className="font-semibold text-slate-900">
+                {employee.highestQualification || "Ph.D / Master's Degree"}
+              </span>
+            </div>
+            <div className="flex justify-between py-1.5 border-b border-slate-100">
+              <span className="text-slate-500">Specialization</span>
+              <span className="font-semibold text-slate-900">
+                {employee.specialization || "Computer Science / Higher Education"}
+              </span>
+            </div>
+            <div className="flex justify-between py-1.5 border-b border-slate-100">
+              <span className="text-slate-500">Teaching Experience</span>
+              <span className="font-semibold text-slate-900">
+                {employee.teachingExperienceYears ? `${employee.teachingExperienceYears} Years` : "5+ Years"}
+              </span>
+            </div>
+            <div className="flex justify-between py-1.5">
+              <span className="text-slate-500">Total Academic Experience</span>
+              <span className="font-semibold text-slate-900">
+                {employee.academicExperienceYears ? `${employee.academicExperienceYears} Years` : "7+ Years"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Subjects Taught Card */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+          <BookOpen className="h-4 w-4 text-indigo-600" />
+          <span>Curricular Subjects & Teaching Assignments</span>
+        </div>
+        <div className="flex flex-wrap gap-2 pt-1">
+          {employee.subjectsTaught && employee.subjectsTaught.length > 0 ? (
+            employee.subjectsTaught.map((sub, i) => (
+              <span
+                key={i}
+                className="px-3 py-1 rounded-xl bg-indigo-50 border border-indigo-200/60 text-xs font-semibold text-indigo-700"
+              >
+                {sub}
+              </span>
+            ))
+          ) : (
+            <span className="text-xs text-slate-400 italic">No specific subjects assigned yet.</span>
+          )}
+        </div>
+      </div>
+
+      {/* Service & Confirmation Dates */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-900 mb-3">
+          <Award className="h-4 w-4 text-amber-600" />
+          <span>Institutional Tenure & Service Milestones</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+            <span className="text-slate-400 font-medium block">Joining Date</span>
+            <span className="text-slate-900 font-bold text-sm mt-0.5 block">{employee.startDate || "N/A"}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+            <span className="text-slate-400 font-medium block">Probation End Date</span>
+            <span className="text-slate-900 font-bold text-sm mt-0.5 block">{employee.probationEndDate || "Completed"}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+            <span className="text-slate-400 font-medium block">Confirmation Date</span>
+            <span className="text-slate-900 font-bold text-sm mt-0.5 block">{employee.confirmationDate || "Confirmed"}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Edit Modal */}
+      {open && (
+        <Modal title="Edit Academic & Faculty Credentials" onClose={() => setOpen(false)} onSave={save} saving={saving}>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Staff Category</label>
+              <select
+                value={f.staffCategory}
+                onChange={(e) => setF({ ...f, staffCategory: e.target.value as any })}
+                className={inputCls}
+              >
+                <option value="teaching">Teaching Faculty</option>
+                <option value="non_teaching">Non-Teaching Staff</option>
+                <option value="administrative">Administrative Staff</option>
+                <option value="technical">Technical / Lab Personnel</option>
+                <option value="support">Support Personnel</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Campus Assignment</label>
+              <select
+                value={f.campusId}
+                onChange={(e) => setF({ ...f, campusId: e.target.value })}
+                className={inputCls}
+              >
+                <option value="">-- Unassigned / Remote --</option>
+                {campuses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Faculty Grade / Level</label>
+              <input
+                value={f.facultyGrade}
+                onChange={(e) => setF({ ...f, facultyGrade: e.target.value })}
+                placeholder="e.g. Professor, Associate Professor, Lecturer"
+                className={inputCls}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Highest Qualification</label>
+              <input
+                value={f.highestQualification}
+                onChange={(e) => setF({ ...f, highestQualification: e.target.value })}
+                placeholder="e.g. Ph.D, M.Tech, M.Ed, B.Ed"
+                className={inputCls}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Specialization</label>
+              <input
+                value={f.specialization}
+                onChange={(e) => setF({ ...f, specialization: e.target.value })}
+                placeholder="e.g. Artificial Intelligence, Organic Chemistry"
+                className={inputCls}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Subjects Taught (comma-separated)
+              </label>
+              <input
+                value={f.subjectsTaught}
+                onChange={(e) => setF({ ...f, subjectsTaught: e.target.value })}
+                placeholder="e.g. Mathematics, Calculus, Statistics"
+                className={inputCls}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Teaching Exp. (Years)</label>
+                <input
+                  type="number"
+                  value={f.teachingExperienceYears}
+                  onChange={(e) => setF({ ...f, teachingExperienceYears: Number(e.target.value) })}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Academic Exp. (Years)</label>
+                <input
+                  type="number"
+                  value={f.academicExperienceYears}
+                  onChange={(e) => setF({ ...f, academicExperienceYears: Number(e.target.value) })}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Probation End Date</label>
+                <input
+                  type="date"
+                  value={f.probationEndDate}
+                  onChange={(e) => setF({ ...f, probationEndDate: e.target.value })}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Confirmation Date</label>
+                <input
+                  type="date"
+                  value={f.confirmationDate}
+                  onChange={(e) => setF({ ...f, confirmationDate: e.target.value })}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

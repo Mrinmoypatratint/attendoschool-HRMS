@@ -8,7 +8,28 @@
  */
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, Shield, Settings, ChevronLeft, ChevronRight, LogOut, Briefcase, Network, KanbanSquare, FileText, CalendarDays, FolderLock } from "lucide-react";
+import { 
+  LayoutDashboard, 
+  Users, 
+  Shield, 
+  Settings, 
+  ChevronLeft, 
+  ChevronRight, 
+  LogOut, 
+  Briefcase, 
+  Network, 
+  KanbanSquare, 
+  FileText, 
+  CalendarDays, 
+  FolderLock,
+  Building2,
+  Clock,
+  Calendar,
+  BookOpen,
+  UserCheck,
+  DollarSign,
+  Award
+} from "lucide-react";
 import { useAuth } from "../../features/auth/context/AuthContext";
 import { useHasPermission } from "../../features/rbac/hooks/usePermissions";
 import type { PermissionKey } from "@hrms/middleware";
@@ -40,15 +61,22 @@ export function Sidebar() {
 
   const allMenuItems: MenuItem[] = [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { label: "Employees", href: "/employees", icon: Briefcase, permission: "employees.view" },
-    { label: "Teams", href: "/teams", icon: Network, permission: "teams.view" },
+    { label: "Campuses", href: "/campuses", icon: Building2, permission: "campuses.view" },
+    { label: "Staff & Faculty", href: "/employees", icon: Briefcase, permission: "employees.view" },
+    { label: "Attendance", href: "/attendance", icon: Clock, permission: "attendance.view" },
+    { label: "Academic Calendar", href: "/calendar", icon: Calendar, permission: "academic_calendar.view" },
+    { label: "Faculty Workload", href: "/workload", icon: BookOpen, permission: "workload.view" },
+    { label: "Substitutes", href: "/substitutes", icon: UserCheck, permission: "substitutes.view" },
+    { label: "Teams & Depts", href: "/teams", icon: Network, permission: "teams.view" },
     { label: "Job Requisitions", href: "/jobs", icon: FileText, permission: "jobs.view" },
-    { label: "Pipeline", href: "/pipeline", icon: KanbanSquare, permission: "candidates.view" },
-    { label: "Leave", href: "/leave", icon: CalendarDays, permission: "leave.view" },
+    { label: "Recruitment Pipeline", href: "/pipeline", icon: KanbanSquare, permission: "candidates.view" },
+    { label: "Leave Management", href: "/leave", icon: CalendarDays, permission: "leave.view" },
+    { label: "Payroll & Salaries", href: "/payroll", icon: DollarSign, permission: "payroll.view" },
+    { label: "Appraisals & FDP", href: "/performance", icon: Award, permission: "performance.view" },
     { label: "Document Vault", href: "/documents", icon: FolderLock, permission: "documents.view" },
     { label: "Users & Invites", href: "/users", icon: Users, permission: "users.view" },
     { label: "RBAC Roles", href: "/rbac", icon: Shield, permission: "roles.view" },
-    { label: "Org Settings", href: "/settings", icon: Settings },
+    { label: "Institution Settings", href: "/settings", icon: Settings },
   ];
 
   // Hide any destination the current role lacks permission for. Items without a

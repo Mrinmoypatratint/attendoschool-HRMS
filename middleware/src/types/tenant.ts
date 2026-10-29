@@ -16,6 +16,15 @@ export interface Tenant {
   logoURL: string | null;
   primaryColor?: string;
   supportEmail?: string;
+
+  // Educational Institution Configuration
+  institutionCode?: string; // e.g. "STANFORD-EDU", "DPS-001"
+  institutionCategory?: "school" | "college" | "university" | "academy" | "polytechnic" | "institute";
+  affiliation?: string; // e.g. "CBSE", "ICSE", "State Board", "AICTE", "UGC", "Autonomous"
+  accreditation?: string; // e.g. "NAAC A++", "NBA Accredited"
+  currentAcademicSessionId?: string;
+  primaryCampusId?: string;
+
   createdAt: number;
   updatedAt: number;
 }

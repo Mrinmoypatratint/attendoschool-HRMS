@@ -26,7 +26,21 @@ export interface Employee {
   managerId?: string; // References Employee.id (for direct reports/manager relationships)
   status: EmployeeStatus;
   startDate: string; // ISO date string (YYYY-MM-DD)
-  workLocation: string; // e.g. "Remote", "Office - NYC", "Office - London"
+  workLocation: string; // e.g. "Remote", "Main Campus", "Downtown Branch"
+  
+  // Educational Institution Extensions
+  campusId?: string | undefined; // References Campus.id
+  staffCategory?: "teaching" | "non_teaching" | "administrative" | "technical" | "support" | undefined;
+  teachingStatus?: "teaching" | "non_teaching" | undefined;
+  facultyGrade?: string | undefined; // e.g. "Professor", "Associate Professor", "Assistant Professor", "Senior Lecturer", "Teacher"
+  highestQualification?: string | undefined; // e.g. "Ph.D", "M.Tech", "M.Sc", "B.Ed", "M.Ed"
+  specialization?: string | undefined; // e.g. "Computer Science & Engineering", "Organic Chemistry"
+  subjectsTaught?: string[] | undefined; // e.g. ["Physics", "Mathematics"]
+  teachingExperienceYears?: number | undefined;
+  academicExperienceYears?: number | undefined;
+  probationEndDate?: string | undefined; // ISO date string (YYYY-MM-DD)
+  confirmationDate?: string | undefined; // ISO date string (YYYY-MM-DD)
+
   createdAt: number;
   updatedAt: number;
 }

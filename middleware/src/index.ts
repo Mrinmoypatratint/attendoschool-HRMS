@@ -13,6 +13,7 @@ export * from "./types/offer";
 export * from "./types/leave";
 export * from "./types/document";
 export * from "./types/notification";
+export * from "./types/education";
 
 
 
