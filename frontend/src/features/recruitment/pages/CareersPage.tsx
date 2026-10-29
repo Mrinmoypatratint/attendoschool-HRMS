@@ -105,11 +105,11 @@ export function CareersPage() {
       <header className="bg-white border-b border-slate-200">
         <div className="mx-auto max-w-3xl px-6 py-10">
           <div className="flex items-center gap-4">
-            {activeTenant?.logoURL ? (
+            {(activeTenant?.logoURL || (activeTenant as any)?.logoUrl) ? (
               <img
-                src={activeTenant.logoURL}
-                alt={activeTenant.name}
-                className="h-12 w-12 rounded-xl object-cover shrink-0"
+                src={activeTenant?.logoURL || (activeTenant as any)?.logoUrl}
+                alt={activeTenant?.name}
+                className="h-12 w-12 rounded-xl object-contain p-1 border border-slate-200 bg-white shrink-0 shadow-xs"
               />
             ) : (
               <div

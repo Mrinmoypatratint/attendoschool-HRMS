@@ -110,11 +110,11 @@ export function Sidebar() {
       <div className="flex h-16 items-center justify-between px-4 border-b border-slate-100">
         {!collapsed ? (
           <div className="flex items-center gap-3">
-            {activeTenant?.logoURL ? (
+            {(activeTenant?.logoURL || (activeTenant as any)?.logoUrl) ? (
               <img
-                src={activeTenant.logoURL}
-                alt={activeTenant.name}
-                className="h-8 w-8 rounded-lg object-cover"
+                src={activeTenant?.logoURL || (activeTenant as any)?.logoUrl}
+                alt={activeTenant?.name}
+                className="h-8 w-8 rounded-lg object-contain bg-white p-0.5 border border-slate-200"
               />
             ) : (
               <div 
@@ -139,12 +139,20 @@ export function Sidebar() {
             </div>
           </div>
         ) : (
-          <div 
-            className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg text-white font-bold text-sm"
-            style={{ backgroundColor: primaryColor }}
-          >
-            {activeTenant ? getInitials(activeTenant.name) : "HR"}
-          </div>
+          (activeTenant?.logoURL || (activeTenant as any)?.logoUrl) ? (
+            <img
+              src={activeTenant?.logoURL || (activeTenant as any)?.logoUrl}
+              alt={activeTenant?.name}
+              className="mx-auto h-8 w-8 rounded-lg object-contain bg-white p-0.5 border border-slate-200"
+            />
+          ) : (
+            <div 
+              className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg text-white font-bold text-sm"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {activeTenant ? getInitials(activeTenant.name) : "HR"}
+            </div>
+          )
         )}
 
         <button

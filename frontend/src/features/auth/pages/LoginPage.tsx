@@ -505,7 +505,7 @@ export function LoginPage() {
                   <div className="flex items-start gap-3.5">
                     <div className="h-12 w-12 rounded-xl bg-white border border-emerald-200/80 p-1 flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
                       <img
-                        src={matchedTenant.logoUrl || "/greenwood-crest.svg"}
+                        src={(matchedTenant as any).logoURL || matchedTenant.logoUrl || "/greenwood-logo.png"}
                         alt={matchedTenant.name}
                         className="h-full w-full object-contain"
                       />
@@ -758,11 +758,11 @@ export function LoginPage() {
               <div className="absolute inset-3 rounded-full border border-emerald-500/40 animate-ping opacity-25" />
               
               {/* Glowing Shield / Crest Backdrop */}
-              <div className="absolute inset-4 rounded-3xl bg-gradient-to-tr from-emerald-950 via-slate-900 to-slate-950 border-2 border-amber-400/50 shadow-2xl flex items-center justify-center overflow-hidden p-2">
+              <div className="absolute inset-4 rounded-3xl bg-white border-2 border-amber-400/80 shadow-2xl flex items-center justify-center overflow-hidden p-3 ring-4 ring-emerald-500/20">
                 <img
-                  src={matchedTenant?.logoUrl || "/greenwood-crest.svg"}
+                  src={(matchedTenant as any)?.logoURL || matchedTenant?.logoUrl || "/greenwood-logo.png"}
                   alt={matchedTenant?.name || "Institution Logo"}
-                  className="h-32 w-32 sm:h-36 sm:w-36 object-contain animate-crest-pulse"
+                  className="h-28 w-28 sm:h-32 sm:w-32 object-contain animate-crest-pulse"
                 />
               </div>
             </div>

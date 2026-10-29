@@ -46,6 +46,56 @@ const COLOR_PRESETS = [
 ];
 
 /**
+ * Resilient image compressor for tenant logo uploads.
+ * Converts to max 400x400 WebP/PNG (~20-35KB), avoiding Firestore 1MB limits
+ * and ensuring uploads succeed even if Firebase Cloud Storage CORS is unconfigured.
+ */
+function compressImageFile(file: File, maxDim = 400, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Failed to load image"));
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(reader.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        try {
+          const webpData = canvas.toDataURL("image/webp", quality);
+          if (webpData && webpData.startsWith("data:image/webp")) {
+            resolve(webpData);
+            return;
+          }
+        } catch {
+          // fallback
+        }
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
  * Renders the organization settings page with tabbed Details, Branding, and
  * Audit Logs sections. Reads the active tenant/profile from auth context and
  * persists changes to the tenant document while recording audit entries.
@@ -97,19 +147,25 @@ export function SettingsPage() {
       setValue("industry", activeTenant.industry);
       setValue("timezone", activeTenant.timezone);
       setValue("address", activeTenant.address);
-      if (activeTenant.logoURL) {
-        setLogoPreview(activeTenant.logoURL);
+      const currentLogo = activeTenant.logoURL || (activeTenant as any).logoUrl || null;
+      if (currentLogo) {
+        setLogoPreview(currentLogo);
       }
       setBrandingColor(activeTenant.primaryColor || "#2563eb");
       setSupportEmail(activeTenant.supportEmail || "");
     }
   }, [activeTenant, setValue]);
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setLogoFile(file);
-      setLogoPreview(URL.createObjectURL(file));
+      try {
+        const preview = await compressImageFile(file, 400, 0.85);
+        setLogoPreview(preview);
+      } catch {
+        setLogoPreview(URL.createObjectURL(file));
+      }
     }
   };
 
@@ -121,14 +177,36 @@ export function SettingsPage() {
     setError(null);
 
     try {
-      let finalLogoURL = activeTenant?.logoURL || null;
+      let finalLogoURL = activeTenant?.logoURL || (activeTenant as any)?.logoUrl || null;
 
       if (logoFile) {
         setUploadingLogo(true);
-        const logoRef = ref(storage, `tenants/${tenantId}/logos/logo_${Date.now()}`);
-        const uploadResult = await uploadBytes(logoRef, logoFile);
-        finalLogoURL = await getDownloadURL(uploadResult.ref);
-        setUploadingLogo(false);
+        try {
+          // 1. Client-side compress to lightweight WebP/PNG (~25KB)
+          const compressedDataUrl = await compressImageFile(logoFile, 400, 0.85);
+
+          // 2. Try Firebase Storage with 3-second timeout, but gracefully fallback to compressed data URL
+          let uploadedUrl: string | null = null;
+          try {
+            const logoRef = ref(storage, `tenants/${tenantId}/logos/logo_${Date.now()}`);
+            const uploadTask = uploadBytes(logoRef, logoFile).then((res) => getDownloadURL(res.ref));
+            const timeoutTask = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Storage upload timed out")), 3000)
+            );
+            uploadedUrl = await Promise.race([uploadTask, timeoutTask]);
+          } catch (storageErr) {
+            console.warn(
+              "Firebase Storage upload failed or blocked by CORS, falling back to embedded compressed logo:",
+              storageErr
+            );
+          }
+
+          finalLogoURL = uploadedUrl || compressedDataUrl;
+        } catch (imgErr) {
+          console.error("Error processing logo image:", imgErr);
+        } finally {
+          setUploadingLogo(false);
+        }
       }
 
       const tenantRef = doc(db, "tenants", tenantId);
@@ -138,6 +216,7 @@ export function SettingsPage() {
         timezone: data.timezone,
         address: data.address,
         logoURL: finalLogoURL,
+        logoUrl: finalLogoURL,
         updatedAt: Date.now(),
       });
 
@@ -158,6 +237,7 @@ export function SettingsPage() {
       setError(getFriendlyErrorMessage(err, "Failed to save organization settings."));
     } finally {
       setSaving(false);
+      setUploadingLogo(false);
     }
   };
 
@@ -330,17 +410,17 @@ export function SettingsPage() {
             <h2 className="text-sm font-bold text-slate-800 self-start mb-4">Company Logo</h2>
 
             {/* Logo container */}
-            <div className="relative flex h-32 w-32 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 overflow-hidden group">
+            <div className="relative flex h-36 w-36 items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-white overflow-hidden group shadow-xs">
               {logoPreview ? (
-                <img src={logoPreview} alt="Logo preview" className="h-full w-full object-cover" />
+                <img src={logoPreview} alt="Logo preview" className="h-full w-full object-contain p-2" />
               ) : (
                 <Building2 size={40} className="text-slate-300" />
               )}
 
               {isAuthorizedToManage && (
-                <label className="absolute inset-0 bg-slate-900/50 flex flex-col items-center justify-center text-white text-[10px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                  <Upload size={18} className="mb-1" />
-                  Change Logo
+                <label className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center text-white text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                  <Upload size={20} className="mb-1 text-white" />
+                  <span>Change Logo</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -350,8 +430,21 @@ export function SettingsPage() {
                 </label>
               )}
             </div>
-            <p className="text-xs text-slate-400 mt-3">Supports JPG, PNG. Max size 2MB.</p>
-            {uploadingLogo && <p className="text-xs text-blue-600 mt-2 font-semibold animate-pulse">Uploading logo...</p>}
+
+            {isAuthorizedToManage && (
+              <label className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-slate-900 cursor-pointer shadow-xs transition-all">
+                <Upload size={14} className="text-slate-500" />
+                <span>Choose New Logo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoChange}
+                  className="sr-only"
+                />
+              </label>
+            )}
+            <p className="text-[11px] text-slate-400 mt-2">Supports JPG, PNG, WebP. Max size 2MB.</p>
+            {uploadingLogo && <p className="text-xs text-blue-600 mt-2 font-semibold animate-pulse">Processing logo...</p>}
           </div>
 
           {/* Right Card: Fields */}

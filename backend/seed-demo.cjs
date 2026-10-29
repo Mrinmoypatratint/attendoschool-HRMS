@@ -175,7 +175,8 @@ async function seed() {
     industry: "Education",
     timezone: "Asia/Kolkata",
     address: "GreenWood Campus, Varthur Road, Whitefield, Bengaluru, Karnataka 560087",
-    logoURL: null,
+    logoURL: "/greenwood-logo.png",
+    logoUrl: "/greenwood-logo.png",
     primaryColor: "#15803d", // Forest Green
     supportEmail: "admin@greenwood.edu.in",
     website: "https://greenwood.edu.in",
