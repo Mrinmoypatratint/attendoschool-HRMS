@@ -254,22 +254,27 @@ export function LoginPage() {
       // TRIGGER ANIMATED ORGANIZATION PREVIEW (The "WOW" Factor!)
       setLoading(false);
       setShowOrgSplash(true);
-      setSplashProgress(35);
+      setSplashProgress(25);
       setSplashStatusText(`Connecting to ${matchedTenant.name}...`);
 
       setTimeout(() => {
-        setSplashProgress(70);
-        setSplashStatusText("Synchronizing academic calendar & timetable...");
-      }, 700);
+        setSplashProgress(60);
+        setSplashStatusText("Verifying faculty credentials & academic session...");
+      }, 800);
+
+      setTimeout(() => {
+        setSplashProgress(90);
+        setSplashStatusText("Synchronizing timetable & attendance records...");
+      }, 1600);
 
       setTimeout(() => {
         setSplashProgress(100);
         setSplashStatusText(`Welcome to ${matchedTenant.name}`);
-      }, 1400);
+      }, 2300);
 
       setTimeout(() => {
         navigate("/dashboard");
-      }, 2100);
+      }, 2800);
 
     } catch (err: any) {
       console.error(err);
