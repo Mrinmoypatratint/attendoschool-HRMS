@@ -170,6 +170,19 @@ async function seedAll() {
     // Ignore if not present
   }
 
+  const memberDirectory = {};
+  for (const u of USERS_TO_SEED) {
+    memberDirectory[u.email.toLowerCase().trim()] = {
+      displayName: u.displayName,
+      designation: u.designation,
+      role: u.role,
+      category: u.category,
+      campusId: u.campusId,
+      departmentId: u.departmentId,
+      lastLoginAt: Date.now() - Math.floor(Math.random() * 18000000 + 3600000), // e.g. a few hours ago
+    };
+  }
+
   // 1. Main Institution Tenant
   console.log("[3/14] Seeding Institution Tenant...");
   await setDoc(doc(db, "tenants", TENANT_ID), {
@@ -187,6 +200,8 @@ async function seedAll() {
     website: "https://greenwood.edu.in",
     currency: "INR",
     currencySymbol: "₹",
+    logoUrl: "/greenwood-crest.svg",
+    memberDirectory,
     status: "active",
     createdAt: now,
     updatedAt: now,
