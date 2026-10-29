@@ -34,22 +34,25 @@ import { initializeAppCheck, ReCaptchaV3Provider, type AppCheck } from "firebase
 const app: FirebaseApp = initializeApp(firebaseConfig);
 
 /**
- * Initialize App Check only for real (non-emulator) usage.
- * In emulator mode, App Check frequently causes preflight/token-exchange
- * issues that break callable requests from the browser.
+ * Initialize App Check only for real (non-emulator) usage when configured.
+ * In emulator mode, App Check is skipped to prevent preflight/token-exchange issues.
+ * SECURITY: Debug tokens are strictly forbidden in production builds.
  */
 let appCheck: AppCheck | undefined = undefined;
 if (typeof window !== "undefined" && import.meta.env.VITE_USE_EMULATOR !== "true") {
-  // Enable self debug token for local non-emulator development
-  // (not applied when VITE_USE_EMULATOR === "true")
-  (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  // Only enable debug token during local development if explicitly requested via VITE_APPCHECK_DEBUG.
+  // NEVER enable in production builds (import.meta.env.PROD).
+  if (import.meta.env.DEV && import.meta.env.VITE_APPCHECK_DEBUG === "true") {
+    (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
 
-  appCheck = initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(
-      import.meta.env.VITE_RECAPTCHA_SITE_KEY || "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
-    ),
-    isTokenAutoRefreshEnabled: true,
-  });
+  const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+  if (siteKey) {
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(siteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  }
 }
 
 /** App Check instance (browser only); `undefined` in non-window environments. */

@@ -1,0 +1,163 @@
+name: Production Deployment to Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-package:
+    name: Build & Package Production Artifact
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js 20 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Quality Gate — TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: Quality Gate — ESLint Check
+        run: npm run lint
+
+      - name: Quality Gate — Unit & Component Tests
+        run: npm -w frontend run test
+
+      - name: Build Production Frontend Bundle
+        run: npm -w frontend run build
+        env:
+          VITE_USE_EMULATOR: "false"
+          VITE_USE_AUTH_EMULATOR: "false"
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_RECAPTCHA_SITE_KEY: ${{ vars.VITE_RECAPTCHA_SITE_KEY }}
+
+      - name: Make Scripts Executable
+        run: chmod +x scripts/*.sh
+
+      - name: Package Versioned Release Artifact
+        run: ./scripts/prepare-artifact.sh "${{ github.sha }}" ./dist-artifacts
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hrms-release-${{ github.sha }}
+          path: ./dist-artifacts/*
+          retention-days: 5
+          if-no-files-found: error
+
+  deploy-vps:
+    name: Deploy to Hostinger VPS (Atomic Zero-Downtime)
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Deployment Scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Download Release Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hrms-release-${{ github.sha }}
+          path: ./downloaded-artifact
+
+      - name: Configure Secure SSH Client
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Store private key securely
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # Write strictly verified host key (StrictHostKeyChecking=yes)
+          echo "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Transfer Artifact and Deployment Scripts to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          echo "Connecting to ${VPS_USER}@${VPS_HOST}:${VPS_PORT}..."
+          
+          # Transfer release tarball and checksum
+          scp -i ~/.ssh/deploy_key -P "${VPS_PORT}" \
+            ./downloaded-artifact/hrms-frontend-${COMMIT_SHA}.tar.gz* \
+            "${VPS_USER}@${VPS_HOST}:/tmp/"
+
+          # Transfer deployment scripts
+          scp -i ~/.ssh/deploy_key -P "${VPS_PORT}" \
+            scripts/deploy-production.sh \
+            scripts/verify-release.sh \
+            scripts/rollback-production.sh \
+            "${VPS_USER}@${VPS_HOST}:/tmp/"
+
+      - name: Execute Atomic Release Activation on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" << 'EOF'
+            set -euo pipefail
+            chmod +x /tmp/deploy-production.sh /tmp/verify-release.sh /tmp/rollback-production.sh
+            
+            # Execute atomic zero-downtime release deployment
+            /tmp/deploy-production.sh "/tmp/hrms-frontend-${COMMIT_SHA}.tar.gz" "${COMMIT_SHA}" /var/www/hrms-attendoschool 5
+            
+            # Run multi-layered health check verification
+            echo "Running health checks on active release..."
+            if ! /tmp/verify-release.sh "hrms.attendoschool.online" /var/www/hrms-attendoschool; then
+              echo "[-] Verification failed! Triggering automatic release rollback..." >&2
+              /tmp/rollback-production.sh "" /var/www/hrms-attendoschool
+              exit 1
+            fi
+            
+            # Clean up temporary staging files from /tmp
+            rm -f "/tmp/hrms-frontend-${COMMIT_SHA}.tar.gz"*
+            rm -f /tmp/deploy-production.sh /tmp/verify-release.sh /tmp/rollback-production.sh
+          EOF
+
+      - name: Deployment Success Summary
+        run: |
+          echo "=========================================================="
+          echo "✅ Production Deployment Succeeded!"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Domain    : https://hrms.attendoschool.online"
+          echo "Status    : Verified & Live"
+          echo "=========================================================="

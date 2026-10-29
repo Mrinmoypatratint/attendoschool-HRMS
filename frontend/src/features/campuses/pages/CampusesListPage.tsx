@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Building2, 
   Plus, 
@@ -51,7 +51,7 @@ export function CampusesListPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
     try {
@@ -66,11 +66,11 @@ export function CampusesListPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantId]);
 
   useEffect(() => {
     loadData();
-  }, [tenantId]);
+  }, [loadData]);
 
   const handleOpenAdd = () => {
     setEditingCampus(null);

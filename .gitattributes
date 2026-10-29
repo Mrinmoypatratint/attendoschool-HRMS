@@ -1,0 +1,9 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Ensure shell scripts always keep LF line endings on all platforms
+*.sh text eol=lf
+
+# Ensure workflow files use LF
+*.yml text eol=lf
+*.yaml text eol=lf
