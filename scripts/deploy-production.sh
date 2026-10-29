@@ -81,6 +81,8 @@ mkdir -p "${STAGING_RELEASE_DIR}"
 # 4. Extract tarball into isolated staging directory
 echo "[3/7] Extracting release artifact into staging..."
 tar -xzf "${TARBALL_PATH}" -C "${STAGING_RELEASE_DIR}"
+find "${STAGING_RELEASE_DIR}" -type d -exec chmod 755 {} +
+find "${STAGING_RELEASE_DIR}" -type f -exec chmod 644 {} +
 
 # 5. Structure & Sanity Verification of Staged Release
 echo "[4/7] Verifying staged release structure..."
