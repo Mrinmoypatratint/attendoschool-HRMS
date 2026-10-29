@@ -90,6 +90,11 @@ TMP_LINK="${BASE_DIR}/current.rollback.tmp.$$"
 ln -s "${ROLLBACK_TARGET}" "${TMP_LINK}"
 mv -Tf "${TMP_LINK}" "${CURRENT_LINK}"
 
+# Sync rollback files to BASE_DIR for CloudPanel compatibility
+cp -r "${ROLLBACK_TARGET}/"* "${BASE_DIR}/" 2>/dev/null || true
+chmod 644 "${BASE_DIR}/index.html" 2>/dev/null || true
+chmod -R 755 "${BASE_DIR}/assets" 2>/dev/null || true
+
 # Reload Nginx (optional)
 echo "[+] Reloading web server..."
 if command -v nginx >/dev/null 2>&1; then

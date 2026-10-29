@@ -22,7 +22,7 @@ set -euo pipefail
 HOST_HEADER="${1:-hrms.attendoschool.online}"
 BASE_DIR="${2:-/home/attendoschool-hrms/htdocs/hrms.attendoschool.online}"
 CURRENT_LINK="${BASE_DIR}/current"
-LOCAL_URL="http://127.0.0.1"
+LOCAL_URL="https://${HOST_HEADER}"
 
 echo "=========================================================="
 echo "  AttendoSchool HRMS — Release Health Verification       "

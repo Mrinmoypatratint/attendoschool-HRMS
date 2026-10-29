@@ -130,6 +130,11 @@ ln -s "${TARGET_RELEASE_DIR}" "${TMP_LINK}"
 mv -Tf "${TMP_LINK}" "${CURRENT_LINK}"
 echo "      [✓] Symlink 'current' atomically updated -> ${TARGET_RELEASE_DIR}"
 
+# Sync build files directly to BASE_DIR to support default CloudPanel root
+cp -r "${TARGET_RELEASE_DIR}/"* "${BASE_DIR}/" 2>/dev/null || true
+chmod 644 "${BASE_DIR}/index.html" 2>/dev/null || true
+chmod -R 755 "${BASE_DIR}/assets" 2>/dev/null || true
+
 # 7. Reload Nginx (Optional, only if permitted; symlink change is already live)
 echo "[6/7] Reloading web server..."
 if command -v nginx >/dev/null 2>&1; then
