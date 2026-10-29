@@ -22,8 +22,7 @@ export const PayrollService = {
   async getPayrollRuns(tenantId: string, year?: number): Promise<PayrollRun[]> {
     let q = query(
       collection(db, "payrollRuns"),
-      where("tenantId", "==", tenantId),
-      orderBy("createdAt", "desc")
+      where("tenantId", "==", tenantId)
     );
     const snap = await getDocs(q);
     const list: PayrollRun[] = [];
@@ -33,7 +32,7 @@ export const PayrollService = {
         list.push(run);
       }
     });
-    return list;
+    return list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   },
 
   /**
@@ -58,13 +57,12 @@ export const PayrollService = {
     const q = query(
       collection(db, "payslips"),
       where("tenantId", "==", tenantId),
-      where("employeeId", "==", employeeId),
-      orderBy("year", "desc")
+      where("employeeId", "==", employeeId)
     );
     const snap = await getDocs(q);
     const list: Payslip[] = [];
     snap.forEach((d) => list.push(d.data() as Payslip));
-    return list;
+    return list.sort((a, b) => (b.year || 0) - (a.year || 0));
   },
 
   /**

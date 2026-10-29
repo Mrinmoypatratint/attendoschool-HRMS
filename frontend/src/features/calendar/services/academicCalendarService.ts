@@ -20,13 +20,12 @@ export const AcademicCalendarService = {
   async getAcademicSessions(tenantId: string): Promise<AcademicSession[]> {
     const q = query(
       collection(db, "academicSessions"),
-      where("tenantId", "==", tenantId),
-      orderBy("startDate", "desc")
+      where("tenantId", "==", tenantId)
     );
     const snap = await getDocs(q);
     const list: AcademicSession[] = [];
     snap.forEach((d) => list.push(d.data() as AcademicSession));
-    return list;
+    return list.sort((a, b) => (b.startDate || "").localeCompare(a.startDate || ""));
   },
 
   /**

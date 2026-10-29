@@ -21,13 +21,12 @@ export const CampusService = {
   async getCampuses(tenantId: string): Promise<Campus[]> {
     const q = query(
       collection(db, "campuses"),
-      where("tenantId", "==", tenantId),
-      orderBy("name", "asc")
+      where("tenantId", "==", tenantId)
     );
     const snap = await getDocs(q);
     const list: Campus[] = [];
     snap.forEach((d) => list.push(d.data() as Campus));
-    return list;
+    return list.sort((a, b) => a.name.localeCompare(b.name));
   },
 
   /**

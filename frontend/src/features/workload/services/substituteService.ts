@@ -164,8 +164,7 @@ export const SubstituteService = {
   ): Promise<SubstituteAssignment[]> {
     let q = query(
       collection(db, "substituteAssignments"),
-      where("tenantId", "==", tenantId),
-      orderBy("date", "desc")
+      where("tenantId", "==", tenantId)
     );
     const snap = await getDocs(q);
     const list: SubstituteAssignment[] = [];
@@ -175,7 +174,7 @@ export const SubstituteService = {
       if (date && item.date !== date) return;
       list.push(item);
     });
-    return list;
+    return list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   },
 
   /**

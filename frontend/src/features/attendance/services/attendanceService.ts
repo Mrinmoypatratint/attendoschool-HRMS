@@ -56,14 +56,12 @@ export const AttendanceService = {
     const q = query(
       collection(db, "staffAttendance"),
       where("tenantId", "==", tenantId),
-      where("employeeId", "==", employeeId),
-      orderBy("date", "desc"),
-      limit(maxLimit)
+      where("employeeId", "==", employeeId)
     );
     const snap = await getDocs(q);
     const list: StaffAttendance[] = [];
     snap.forEach((d) => list.push(d.data() as StaffAttendance));
-    return list;
+    return list.sort((a, b) => b.date.localeCompare(a.date)).slice(0, maxLimit);
   },
 
   /**

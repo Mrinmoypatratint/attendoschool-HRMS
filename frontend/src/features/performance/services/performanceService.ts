@@ -20,8 +20,7 @@ export const PerformanceService = {
   async getReviews(tenantId: string, sessionId?: string): Promise<PerformanceReview[]> {
     let q = query(
       collection(db, "performanceReviews"),
-      where("tenantId", "==", tenantId),
-      orderBy("createdAt", "desc")
+      where("tenantId", "==", tenantId)
     );
     const snap = await getDocs(q);
     const list: PerformanceReview[] = [];
@@ -31,7 +30,7 @@ export const PerformanceService = {
         list.push(rev);
       }
     });
-    return list;
+    return list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   },
 
   /**
@@ -102,13 +101,12 @@ export const PerformanceService = {
   async getTrainingPrograms(tenantId: string): Promise<TrainingProgram[]> {
     const q = query(
       collection(db, "trainingPrograms"),
-      where("tenantId", "==", tenantId),
-      orderBy("startDate", "desc")
+      where("tenantId", "==", tenantId)
     );
     const snap = await getDocs(q);
     const list: TrainingProgram[] = [];
     snap.forEach((d) => list.push(d.data() as TrainingProgram));
-    return list;
+    return list.sort((a, b) => (b.startDate || "").localeCompare(a.startDate || ""));
   },
 
   async createTrainingProgram(
